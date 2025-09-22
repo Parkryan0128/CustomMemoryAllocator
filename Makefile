@@ -1,5 +1,4 @@
-#### ** Makefile**
-# ```makefile
+
 # Compiler
 CXX = g++
 CXXFLAGS = -std=c++17 -g -Wall -Iinclude
