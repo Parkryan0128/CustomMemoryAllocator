@@ -2,8 +2,6 @@
 #include <iostream>
 
 int main() {
-    std::cout << "Allocator Test Start" << std::endl;
-
     // TODO: Test code
     // e.g.:
     // int* p1 = (int*)my_malloc(sizeof(int));
@@ -13,6 +11,5 @@ int main() {
     //     my_free(p1);
     // }
 
-    std::cout << "Allocator Test End" << std::endl;
     return 0;
 }
