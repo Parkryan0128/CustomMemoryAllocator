@@ -2,6 +2,8 @@
 #include <cstddef>
 #include "FixedSizeAllocator.hpp"
 
+constexpr size_t NUM_POOLS = 8;
+
 class MyAllocator {
 public:
     MyAllocator();
@@ -13,7 +15,7 @@ public:
     void* realloc(void* ptr, size_t newSize);
 
 private:
-    // TODO: member variable for FixedSizeAllocator
+    FixedSizeAllocator* m_pools[NUM_POOLS];
 };
 
 void* my_malloc(size_t size);
