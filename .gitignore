@@ -1,0 +1,9 @@
+# Compiled files
+*.o
+*.out
+
+# Executable
+allocator_test
+
+# OS files
+.DS_Store
