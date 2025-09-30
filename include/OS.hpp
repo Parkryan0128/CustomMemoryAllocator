@@ -14,4 +14,3 @@ void* alloc_chunk(size_t size);
  * @param size The size of the memory to return.
  */
 void free_chunk(void* ptr, size_t size);
-
