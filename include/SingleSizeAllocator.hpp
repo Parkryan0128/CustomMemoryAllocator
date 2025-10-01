@@ -4,122 +4,126 @@
 #include <cstddef>  // For size_t
 #include <iostream> // For logging
 
+class AllocatorFriend;
+
 /**
  * @class SingleSizeAllocator
- * @brief Manages a pool of memory blocks of a single, compile-time-defined size.
+ * @brief A growable memory pool for blocks of a single, compile-time-defined size.
  *
- * This allocator is templated on the block size. It requests one large chunk
- * of memory from the OS and uses a union-based free list to manage available blocks,
- * which is highly memory-efficient.
+ * This allocator requests memory from the OS in large chunks. When the initial
+ * chunk is exhausted, it automatically requests additional chunks as needed.
+ * All memory is returned to the OS upon destruction.
  *
  * @tparam BlockSize The size of each memory block in bytes.
  */
 template <size_t BlockSize>
 class SingleSizeAllocator {
-    public:
-        /**
-         * @brief Constructor that acquires a memory chunk and initializes the free list.
-         */
-        
-        static_assert(CHUNK_SIZE % BlockSize == 0, "CHUNK_SIZE must be a multiple of BlockSize.");
+    friend class AllocatorFriend;
+public:
+    /**
+     * @brief Constructor that allocates the initial chunk of memory.
+     */
+    SingleSizeAllocator() {
+        grow(); // Allocate the first chunk immediately.
+    }
 
-        SingleSizeAllocator() {
-            std::cout << "Creating SingleSizeAllocator for " << BlockSize << " byte blocks." << std::endl;
+    /**
+     * @brief Destructor that traverses the list of chunks and returns them to the OS.
+     */
+    ~SingleSizeAllocator() {
+        Chunk* current = m_chunkList;
+        while (current != nullptr) {
+            Chunk* next = current->next;
+            free_chunk(current, CHUNK_SIZE);
+            current = next;
+        }
+    }
 
-            //Acquire a large memory chunk from the OS.
-            m_chunkStart = alloc_chunk(CHUNK_SIZE);
+    SingleSizeAllocator(const SingleSizeAllocator&) = delete;
+    SingleSizeAllocator& operator=(const SingleSizeAllocator&) = delete;
 
-            if (m_chunkStart) {
-                m_chunkSize = CHUNK_SIZE;
-                std::cout << "Acquired " << m_chunkSize << " bytes from OS at " << m_chunkStart << std::endl;
-
-                // Splice the chunk into a linked list of free blocks.
-                const size_t numBlocks = m_chunkSize / BlockSize;
-                std::cout << "Splicing chunk into " << numBlocks << " free blocks." << std::endl;
-
-                char* p = static_cast<char*>(m_chunkStart);
-                for (size_t i = 0; i < numBlocks; ++i) {
-                    Block* currentBlock = reinterpret_cast<Block*>(p + i * BlockSize);
-                    currentBlock->next = m_head;
-                    m_head = currentBlock;
-                }
-
-                // The last block's 'next' pointer must be null to terminate the list.
-                current->next = nullptr;
-
-            } else {
-                std::cerr << "FATAL: Failed to acquire memory from OS. Allocator is unusable." << std::endl;
-                m_chunkSize = 0;
-                m_head = nullptr;
-            }
+    /**
+     * @brief Allocates one block of memory. If the pool is empty, it attempts to grow.
+     * @return A pointer to the allocated block, or nullptr if memory is exhausted.
+     */
+    void* allocate() {
+        if (m_head == nullptr) {
+            grow();
         }
 
-        /**
-         * @brief Destructor that returns the entire memory chunk to the OS.
-         */
-        ~SingleSizeAllocator() {
-            std::cout << "Destroying SingleSizeAllocator. Returning " << m_chunkSize << " bytes to OS." << std::endl;
-            free_chunk(m_chunkStart, m_chunkSize);
+        if (m_head == nullptr) {
+            return nullptr;
         }
 
-        // Deleted copy constructor and assignment operator to prevent copying.
-        SingleSizeAllocator(const SingleSizeAllocator&) = delete;
-        SingleSizeAllocator& operator=(const SingleSizeAllocator&) = delete;
+        // Pop a block from the front of the free list (stack behavior).
+        Block* blockToReturn = m_head;
+        m_head = m_head->next;
+        return blockToReturn;
+    }
 
-        /**
-         * @brief Allocates one block of memory from the pool.
-         * @return A pointer to the allocated block, or nullptr if out of memory.
-         */
-        void* allocate() {
-            if (m_head == nullptr) {
-                std::cerr << "OUT OF MEMORY: SingleSizeAllocator has no free blocks." << std::endl;
-                return nullptr;
-            }
-
-            // Pop the head of the free list.
-            Block* blockToReturn = m_head;
-            m_head = m_head->next; // The new head is the next block in the list.
-
-            std::cout << "Allocated block at address " << static_cast<void*>(blockToReturn) << std::endl;
-            return blockToReturn;
+    /**
+     * @brief Returns a block of memory to the pool.
+     * @param ptr A pointer to the memory block to deallocate.
+     */
+    void deallocate(void* ptr) {
+        if (ptr == nullptr) {
+            return;
         }
 
-        /**
-         * @brief Returns a block of memory to the pool.
-         * @param ptr A pointer to the memory block to deallocate.
-         */
-        void deallocate(void* ptr) {
-            if (ptr == nullptr) {
-                return; // Standard behavior: deallocating null does nothing.
-            }
+        // Push the freed block to the front of the free list.
+        Block* freedBlock = static_cast<Block*>(ptr);
+        freedBlock->next = m_head;
+        m_head = freedBlock;
+    }
 
-            // Cast the returned pointer back to a Block.
-            Block* freedBlock = static_cast<Block*>(ptr);
+private:
+    // Represents one large chunk of memory obtained from the OS.
+    struct Chunk {
+        Chunk* next; 
+    };
 
-            // Push the freed block to the front of the free list.
-            freedBlock->next = m_head;
-            m_head = freedBlock;
+    // Represents a single block of memory, which is part of a chunk.
+    union Block {
+        char data[BlockSize]; // User data area.
+        Block* next;           
+    };
+    
+    // The size of the memory chunk to request from the OS (e.g., 64 KB).
+    static constexpr size_t CHUNK_SIZE = 64 * 1024;
 
-            std::cout << "Deallocated block at address " << ptr << std::endl;
+    // Compile-time safety checks to prevent invalid template instantiations.
+    static_assert(BlockSize >= sizeof(void*), "BlockSize must be large enough to hold a pointer.");
+    static_assert(CHUNK_SIZE > sizeof(Chunk), "CHUNK_SIZE must be larger than the Chunk metadata struct.");
+
+    Block* m_head = nullptr;      // The head of the free block list (our stack).
+    Chunk* m_chunkList = nullptr; // The head of the list of all allocated chunks.
+
+    /**
+     * @brief Acquires a new chunk of memory from the OS and adds its blocks to the free list.
+     */
+    void grow() {
+        // Request a new chunk of memory from the OS.
+        Chunk* newChunk = static_cast<Chunk*>(alloc_chunk(CHUNK_SIZE));
+        if (newChunk == nullptr) {
+            std::cerr << "FATAL: Failed to grow allocator; OS memory allocation failed.\n";
+            return; // Growth failed.
         }
 
-    private:
-        // The size of the memory chunk to request from the OS. (e.g., 64 KB)
-        static constexpr size_t CHUNK_SIZE = 64 * 1024;
+        // Add the new chunk to the front of our chunk list for later cleanup.
+        newChunk->next = m_chunkList;
+        m_chunkList = newChunk;
 
-        /**
-         * @brief Represents a single block of memory.
-         *
-         * It's a union because a block is either part of the free list (using 'next')
-         * or it's holding user data (using 'data'), but never both at the same time.
-         * This is a memory-efficient way to implement a pool allocator.
-         */
-        union Block {
-            char data[BlockSize]; // Ensures the block is the correct size for the user.
-            Block* next;          // Points to the next available free block.
-        };
+        // Carve up the new chunk into blocks and add them to the free list.
+        // We must reserve space for the Chunk::next pointer at the beginning of the chunk.
+        char* const chunkStart = reinterpret_cast<char*>(newChunk);
+        char* const blockStart = chunkStart + sizeof(Chunk);
+        char* const chunkEnd = chunkStart + CHUNK_SIZE;
 
-        Block* m_head = nullptr;          // The head of the free list.
-        void* m_chunkStart = nullptr;     // The start address of the chunk from the OS.
-        size_t m_chunkSize = 0;           // The total size of the chunk.
+        for (char* p = blockStart; p + BlockSize <= chunkEnd; p += BlockSize) {
+            Block* newBlock = reinterpret_cast<Block*>(p);
+            // Push the new block onto the front of the free list.
+            newBlock->next = m_head;
+            m_head = newBlock;
+        }
+    }
 };
