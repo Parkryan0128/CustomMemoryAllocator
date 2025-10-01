@@ -7,3 +7,5 @@ allocator_test
 
 # OS files
 .DS_Store
+
+*.dylib

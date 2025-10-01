@@ -9,7 +9,7 @@ MyAllocator::MyAllocator() {
         size_t size = (i + 1) * 8;
         m_pools[i] = new FixedSizeAllocator(size);
     }
-    std::cout << "MyAllocator manager created." << std::endl;
+    // std::cout << "MyAllocator manager created." << std::endl;
 }
 
 MyAllocator::~MyAllocator() {
@@ -20,13 +20,13 @@ MyAllocator::~MyAllocator() {
 
 void* MyAllocator::malloc(size_t size) {
     // TODO:
-    std::cout << "MyAllocator::malloc called for size " << size << std::endl;
+    // std::cout << "MyAllocator::malloc called for size " << size << std::endl;
     return nullptr;
 }
 
 void MyAllocator::free(void* ptr) {
     // TODO:
-    std::cout << "MyAllocator::free called." << std::endl;
+    // std::cout << "MyAllocator::free called." << std::endl;
 }
 
 // ... calloc, realloc  ...
