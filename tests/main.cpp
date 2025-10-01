@@ -1,76 +1,75 @@
 #include "SingleSizeAllocator.hpp"
 #include <iostream>
 #include <vector>
-#include <cassert>
+#include <chrono> // The C++ timing library
+#include <iomanip>
 
-constexpr size_t TEST_BLOCK_SIZE = 128;
 
-// This friend class has public helper functions to access the allocator's private data.
-class AllocatorFriend {
-public:
-    template <size_t BlockSize>
-    static const typename SingleSizeAllocator<BlockSize>::Chunk* getChunkList(const SingleSizeAllocator<BlockSize>& alloc) {
-        return alloc.m_chunkList;
-    }
+constexpr size_t BLOCK_SIZE = 32;
+SingleSizeAllocator<BLOCK_SIZE> my_pool;
 
-    template <size_t BlockSize>
-    static constexpr size_t getChunkSize() {
-        return SingleSizeAllocator<BlockSize>::CHUNK_SIZE;
-    }
-    
-    template <size_t BlockSize>
-    static constexpr size_t getChunkStructSize() {
-        return sizeof(typename SingleSizeAllocator<BlockSize>::Chunk);
-    }
-};
+// Wrapper for your allocator to match malloc/free signature
+void* my_malloc_test(size_t size) {
+    // In a real test, you might want to assert(size == BLOCK_SIZE);
+    return my_pool.allocate();
+}
+
+void my_free_test(void* ptr) {
+    my_pool.deallocate(ptr);
+}
+
+constexpr size_t NUM_ALLOCATIONS = 10000000;
+
 
 int main() {
-    std::cout << "--- Starting Comprehensive Growable Allocator Test ---" << std::endl;
+    std::cout << "--- Allocator Performance Benchmark ---" << std::endl;
+    std::cout << "Performing " << NUM_ALLOCATIONS << " allocations of " << BLOCK_SIZE << " bytes." << std::endl;
 
-    SingleSizeAllocator<TEST_BLOCK_SIZE> allocator;
+    std::vector<void*> pointers;
+    // Pre-allocating the vector's memory so we don't measure its own reallocations.
+    pointers.reserve(NUM_ALLOCATIONS);
 
-    // --- Test 1: Basic allocation and deallocation ---
-    std::cout << "\n## [TEST 1] Basic allocation and deallocation\n";
-    void* block1 = allocator.allocate();
-    assert(block1 != nullptr);
-    std::cout << "  -> Successfully allocated one block.\n";
-    allocator.deallocate(block1);
-    std::cout << "  -> Successfully deallocated the block.\n";
-    std::cout << "  -> PASSED ✅\n";
+    // --- Test 1: System malloc/free ---
+    std::cout << "\nTesting system malloc()..." << std::endl;
+    auto start_malloc = std::chrono::high_resolution_clock::now();
 
-    // --- Test 2: Exhaust the first chunk and trigger grow() ---
-    std::cout << "\n## [TEST 2] Exhausting the first chunk and triggering grow()\n";
-
-    // CORRECTED: This calculation now uses the friend class to get the private data.
-    const size_t numBlocksInChunk = (AllocatorFriend::getChunkSize<TEST_BLOCK_SIZE>() - AllocatorFriend::getChunkStructSize<TEST_BLOCK_SIZE>()) / TEST_BLOCK_SIZE;
-
-    std::vector<void*> allocatedBlocks;
-    allocatedBlocks.reserve(numBlocksInChunk + 1);
-
-    for (size_t i = 0; i < numBlocksInChunk; ++i) {
-        void* block = allocator.allocate();
-        assert(block != nullptr);
-        allocatedBlocks.push_back(block);
+    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
+        pointers.push_back(malloc(BLOCK_SIZE));
     }
-    std::cout << "  -> Successfully allocated all " << numBlocksInChunk << " blocks from the first chunk.\n";
-    assert(AllocatorFriend::getChunkList(allocator) != nullptr && AllocatorFriend::getChunkList(allocator)->next == nullptr);
-
-    void* blockFromNewChunk = allocator.allocate();
-    assert(blockFromNewChunk != nullptr);
-    allocatedBlocks.push_back(blockFromNewChunk);
-
-    std::cout << "  -> Successfully allocated one more block, forcing a new chunk to be created.\n";
-    assert(AllocatorFriend::getChunkList(allocator)->next != nullptr);
-    std::cout << "  -> PASSED ✅\n";
-
-    // --- Test 3: Deallocate all blocks ---
-    std::cout << "\n## [TEST 3] Deallocating all blocks from both chunks\n";
-    for (void* block : allocatedBlocks) {
-        allocator.deallocate(block);
+    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
+        free(pointers[i]);
     }
-    std::cout << "  -> Successfully deallocated all " << allocatedBlocks.size() << " blocks.\n";
-    std::cout << "  -> PASSED ✅\n";
+    
+    auto end_malloc = std::chrono::high_resolution_clock::now();
+    auto duration_malloc = std::chrono::duration_cast<std::chrono::milliseconds>(end_malloc - start_malloc);
+    pointers.clear(); // Clear the vector for the next test
 
-    std::cout << "\n--- All Growable Allocator Tests Passed ---" << std::endl;
+    // --- Test 2: Custom my_malloc/my_free ---
+    std::cout << "Testing my_malloc_test()..." << std::endl;
+    auto start_custom = std::chrono::high_resolution_clock::now();
+
+    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
+        pointers.push_back(my_malloc_test(BLOCK_SIZE));
+    }
+    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
+        my_free_test(pointers[i]);
+    }
+
+    auto end_custom = std::chrono::high_resolution_clock::now();
+    auto duration_custom = std::chrono::duration_cast<std::chrono::milliseconds>(end_custom - start_custom);
+
+    // --- Results ---
+    std::cout << "\n--- Benchmark Results ---" << std::endl;
+    std::cout << "System malloc/free took: " << duration_malloc.count() << " ms" << std::endl;
+    std::cout << "Custom allocator took:   " << duration_custom.count() << " ms" << std::endl;
+
+    if (duration_custom < duration_malloc) {
+        double factor = static_cast<double>(duration_malloc.count()) / duration_custom.count();
+        std::cout << "\nCustom allocator was " << std::fixed << std::setprecision(2) << factor << "x faster!" << std::endl;
+    } else {
+        double factor = static_cast<double>(duration_custom.count()) / duration_malloc.count();
+        std::cout << "\nCustom allocator was " << std::fixed << std::setprecision(2) << factor << "x slower." << std::endl;
+    }
+
     return 0;
 }

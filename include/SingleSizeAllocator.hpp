@@ -69,7 +69,6 @@ public:
         if (ptr == nullptr) {
             return;
         }
-
         // Push the freed block to the front of the free list.
         Block* freedBlock = static_cast<Block*>(ptr);
         freedBlock->next = m_head;
