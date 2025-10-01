@@ -1,125 +1,121 @@
-#include "SingleSizeAllocator.hpp"
-#include "PoolAllocator.hpp"
-#include "PreConfPoolAllocator.hpp"
 #include <iostream>
 #include <vector>
+#include <cstdlib>
+#include "SingleSizeAllocator.hpp"
 #include <chrono>
 #include <iomanip>
-
-// --- Config for Test 1 & 2 ---
-constexpr size_t BLOCK_SIZE = 32;
-SingleSizeAllocator<BLOCK_SIZE> g_single_pool;
-void* single_pool_malloc(size_t size) { return g_single_pool.allocate(); }
-void single_pool_free(void* ptr) { g_single_pool.deallocate(ptr); }
-
-// --- Config for Test 3 ---
-MyAlloc::PoolAllocator g_pool_allocator;
-void* pool_alloc_malloc(size_t size) { return g_pool_allocator.allocate(size); }
-void pool_alloc_free(void* ptr) { g_pool_allocator.deallocate(ptr); }
-
-// --- Config for Test 4 ---
-MyAlloc::PreconfPoolAllocator g_preconf_allocator;
-void* preconf_malloc(size_t size) { return g_preconf_allocator.allocate(size); }
-void preconf_free(void* ptr) { g_preconf_allocator.deallocate(ptr); }
+#include <string>
+#include <mach/mach.h>
 
 
-constexpr size_t NUM_ALLOCATIONS = 10000000;
 
-int main() {
-    std::cout << "--- Allocator Performance Benchmark ---" << std::endl;
-    std::cout << "Performing " << NUM_ALLOCATIONS << " allocations of " << BLOCK_SIZE << " bytes each." << std::endl;
+#if defined(__APPLE__)
+#include <malloc/malloc.h>
+#define GET_ALLOC_SIZE(p) malloc_size(p)
+#else
+#define GET_ALLOC_SIZE(p) 0
+#endif
 
+constexpr size_t SMALL_BLOCK_SIZE = 8;
+constexpr size_t NUM_ALLOCATIONS = 5000000;
+
+struct ProcessMemoryInfo { size_t rss; size_t vsize; };
+
+ProcessMemoryInfo getMemoryInfo() {
+    mach_task_basic_info_data_t info;
+    mach_msg_type_number_t infoCount = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &infoCount) != KERN_SUCCESS) {
+        return {0, 0};
+    }
+    return {info.resident_size, info.virtual_size};
+}
+
+
+void system_malloc_memory() {
+    std::cout << "\n--- System Malloc Analysis ---" << std::endl;
     std::vector<void*> pointers;
     pointers.reserve(NUM_ALLOCATIONS);
 
-    // --- Test 1: System malloc/free ---
-    std::cout << "\n[1] Testing system malloc()..." << std::endl;
-    auto start_malloc = std::chrono::high_resolution_clock::now();
-    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) pointers.push_back(malloc(BLOCK_SIZE));
-    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) free(pointers[i]);
-    auto end_malloc = std::chrono::high_resolution_clock::now();
-    auto duration_malloc = std::chrono::duration_cast<std::chrono::milliseconds>(end_malloc - start_malloc);
-    pointers.clear();
 
-    // --- Test 2: SingleSizeAllocator (Original) ---
-    std::cout << "[2] Testing SingleSizeAllocator (Original)..." << std::endl;
-    auto start_single = std::chrono::high_resolution_clock::now();
-    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) pointers.push_back(single_pool_malloc(BLOCK_SIZE));
-    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) single_pool_free(pointers[i]);
-    auto end_single = std::chrono::high_resolution_clock::now();
-    auto duration_single = std::chrono::duration_cast<std::chrono::milliseconds>(end_single - start_single);
-    pointers.clear();
-
-    // --- Test 3: PoolAllocator (On-Demand) ---
-    std::cout << "[3] Testing PoolAllocator (On-Demand)..." << std::endl;
-    auto start_pool = std::chrono::high_resolution_clock::now();
-    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) pointers.push_back(pool_alloc_malloc(BLOCK_SIZE));
-    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) pool_alloc_free(pointers[i]);
-    auto end_pool = std::chrono::high_resolution_clock::now();
-    auto duration_pool = std::chrono::duration_cast<std::chrono::milliseconds>(end_pool - start_pool);
-    pointers.clear();
-
-    // --- Test 4: PreconfPoolAllocator with Headers ---
-    std::cout << "[4] Testing PreconfPoolAllocator (with Headers)..." << std::endl;
-    auto start_preconf = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
-        pointers.push_back(preconf_malloc(BLOCK_SIZE));
+        pointers.push_back(malloc(SMALL_BLOCK_SIZE));
     }
+
+    size_t total_usable_size = 0;
+    for (void* p : pointers) {
+        total_usable_size += GET_ALLOC_SIZE(p);
+    }
+    
+    // Also add the memory for the vector itself!
+    size_t vector_overhead = NUM_ALLOCATIONS * sizeof(void*);
+    size_t total_footprint_best_case = total_usable_size + vector_overhead;
+
+    std::cout << "Total usable block size (from malloc's internal report): " 
+              << total_usable_size / 1024 << " KB" << std::endl;
+    std::cout << "Vector overhead: " << vector_overhead / 1024 << " KB" << std::endl;
+    std::cout << "Total Best-Case Footprint: " << total_footprint_best_case / 1024 << " KB" << std::endl;
+
+    for (void* p : pointers) {
+        free(p);
+
+    }
+}
+
+
+void test_custom_allocator() {
+    std::cout << "\n--- Testing Custom Allocator ---" << std::endl;
+    
+    // 1. Measure the baseline virtual memory before creating the pool or vector.
+    size_t baseline_vsize = getMemoryInfo().vsize;
+
+    // Create the allocator and vector locally for a clean test.
+    SingleSizeAllocator<SMALL_BLOCK_SIZE> my_pool;
+    std::vector<void*> pointers;
+    pointers.reserve(NUM_ALLOCATIONS);
+
+    // Start timing the allocation loop.
+    auto start_time = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
-        preconf_free(pointers[i]);
-    }
-    auto end_preconf = std::chrono::high_resolution_clock::now();
-    auto duration_preconf = std::chrono::duration_cast<std::chrono::milliseconds>(end_preconf - start_preconf);
-    
-    // --- Results ---
-    std::cout << "\n--- Benchmark Results ---" << std::endl;
-    std::cout << "System malloc/free took:             " << duration_malloc.count() << " ms" << std::endl;
-    std::cout << "SingleSizeAllocator (Original) took: " << duration_single.count() << " ms" << std::endl;
-    std::cout << "PoolAllocator (On-Demand) took:      " << duration_pool.count() << " ms" << std::endl;
-    std::cout << "PreconfPoolAllocator (Headers) took: " << duration_preconf.count() << " ms" << std::endl;
-    
-    // --- Mixed-Size Benchmark Section ---
-    std::cout << "\n--- Mixed-Size Benchmark ---" << std::endl;
-    constexpr size_t NUM_MIXED_ALLOCATIONS_PER_SIZE = 2500000;
-    const std::vector<size_t> mixed_sizes = {8, 16, 24, 32};
-    std::cout << "Performing " << NUM_MIXED_ALLOCATIONS_PER_SIZE << " allocations for each size in {8, 16, 24, 32}." << std::endl;
 
-    pointers.reserve(NUM_MIXED_ALLOCATIONS_PER_SIZE * mixed_sizes.size());
-
-    // --- Mixed Test 1: System malloc ---
-    auto start_mixed_malloc = std::chrono::high_resolution_clock::now();
-    for (size_t i = 0; i < NUM_MIXED_ALLOCATIONS_PER_SIZE; ++i) {
-        for (const auto& size : mixed_sizes) {
-            pointers.push_back(malloc(size));
+        char* p = static_cast<char*>(my_pool.allocate());
+        if (p) {
+            p[0] = 1; // "Touch" the memory to ensure it's committed by the OS.
         }
+        pointers.push_back(p);
     }
-    for (void* ptr : pointers) {
-        free(ptr);
+    
+    // Create a data dependency by reading the memory, which prevents
+    // the compiler from optimizing away the allocation loop.
+    long long sum = 0;
+    for (void* p : pointers) {
+        if (p) sum += static_cast<char*>(p)[0];
     }
-    auto end_mixed_malloc = std::chrono::high_resolution_clock::now();
-    auto duration_mixed_malloc = std::chrono::duration_cast<std::chrono::milliseconds>(end_mixed_malloc - start_mixed_malloc);
-    pointers.clear();
+    
+    auto end_time = std::chrono::high_resolution_clock::now();
 
-    // --- Mixed Test 2: PoolAllocator (On-Demand) ---
-    auto start_mixed_pool = std::chrono::high_resolution_clock::now();
-    for (size_t i = 0; i < NUM_MIXED_ALLOCATIONS_PER_SIZE; ++i) {
-        for (const auto& size : mixed_sizes) {
-            pointers.push_back(pool_alloc_malloc(size));
-        }
-    }
-    // CORRECTED: The deallocation loop now uses the correct custom free function.
-    for (void* ptr : pointers) {
-        pool_alloc_free(ptr);
-    }
-    auto end_mixed_pool = std::chrono::high_resolution_clock::now();
-    auto duration_mixed_pool = std::chrono::duration_cast<std::chrono::milliseconds>(end_mixed_pool - start_mixed_pool);
-    pointers.clear();
+    // 2. Measure the peak virtual memory after all allocations are complete.
+    size_t peak_vsize = getMemoryInfo().vsize;
 
-    // --- Mixed-Size Results ---
-    std::cout << "\n--- Mixed-Size Results ---" << std::endl;
-    std::cout << "System malloc took:                  " << duration_mixed_malloc.count() << " ms" << std::endl;
-    std::cout << "PoolAllocator (On-Demand) took:      " << duration_mixed_pool.count() << " ms" << std::endl;
+    // Clean up all the memory that was allocated.
+    for (void* p : pointers) {
+        my_pool.deallocate(p);
+    }
+    
+    // 3. Calculate the difference (delta) and print the results.
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    size_t delta_vsize = peak_vsize - baseline_vsize;
 
+
+    std::cout << "Allocation Time:           " << duration.count() << " ms" << std::endl;
+    std::cout << "Peak Virtual Mem Increase: " << delta_vsize / 1024 << " KB" << std::endl;
+    
+    // This final check ensures the 'sum' calculation is used and not optimized away.
+    if (sum != NUM_ALLOCATIONS) std::cout << "Sum mismatch!" << std::endl;
+}
+
+int main() {
+    test_custom_allocator();
+    system_malloc_memory();
     return 0;
 }
 
