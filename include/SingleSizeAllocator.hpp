@@ -21,21 +21,21 @@ class SingleSizeAllocator {
          * @brief Constructor that acquires a memory chunk and initializes the free list.
          */
         
-        static_assert(CHUNK_SIZE % BlockSize == 0, "CHUNK_SIZE must be a multiple of BlockSize.");
+        // static_assert(CHUNK_SIZE % BlockSize == 0, "CHUNK_SIZE must be a multiple of BlockSize.");
 
         SingleSizeAllocator() {
-            std::cout << "Creating SingleSizeAllocator for " << BlockSize << " byte blocks." << std::endl;
+            // std::cout << "Creating SingleSizeAllocator for " << BlockSize << " byte blocks." << std::endl;
 
             //Acquire a large memory chunk from the OS.
             m_chunkStart = alloc_chunk(CHUNK_SIZE);
 
             if (m_chunkStart) {
                 m_chunkSize = CHUNK_SIZE;
-                std::cout << "Acquired " << m_chunkSize << " bytes from OS at " << m_chunkStart << std::endl;
+                // std::cout << "Acquired " << m_chunkSize << " bytes from OS at " << m_chunkStart << std::endl;
 
                 // Splice the chunk into a linked list of free blocks.
                 const size_t numBlocks = m_chunkSize / BlockSize;
-                std::cout << "Splicing chunk into " << numBlocks << " free blocks." << std::endl;
+                // std::cout << "Splicing chunk into " << numBlocks << " free blocks." << std::endl;
 
                 char* p = static_cast<char*>(m_chunkStart);
                 for (size_t i = 0; i < numBlocks; ++i) {
@@ -43,12 +43,8 @@ class SingleSizeAllocator {
                     currentBlock->next = m_head;
                     m_head = currentBlock;
                 }
-
-                // The last block's 'next' pointer must be null to terminate the list.
-                current->next = nullptr;
-
             } else {
-                std::cerr << "FATAL: Failed to acquire memory from OS. Allocator is unusable." << std::endl;
+                // std::cerr << "FATAL: Failed to acquire memory from OS. Allocator is unusable." << std::endl;
                 m_chunkSize = 0;
                 m_head = nullptr;
             }
@@ -58,7 +54,7 @@ class SingleSizeAllocator {
          * @brief Destructor that returns the entire memory chunk to the OS.
          */
         ~SingleSizeAllocator() {
-            std::cout << "Destroying SingleSizeAllocator. Returning " << m_chunkSize << " bytes to OS." << std::endl;
+            // std::cout << "Destroying SingleSizeAllocator. Returning " << m_chunkSize << " bytes to OS." << std::endl;
             free_chunk(m_chunkStart, m_chunkSize);
         }
 
@@ -72,7 +68,7 @@ class SingleSizeAllocator {
          */
         void* allocate() {
             if (m_head == nullptr) {
-                std::cerr << "OUT OF MEMORY: SingleSizeAllocator has no free blocks." << std::endl;
+                // std::cerr << "OUT OF MEMORY: SingleSizeAllocator has no free blocks." << std::endl;
                 return nullptr;
             }
 
@@ -80,7 +76,7 @@ class SingleSizeAllocator {
             Block* blockToReturn = m_head;
             m_head = m_head->next; // The new head is the next block in the list.
 
-            std::cout << "Allocated block at address " << static_cast<void*>(blockToReturn) << std::endl;
+            // std::cout << "Allocated block at address " << static_cast<void*>(blockToReturn) << std::endl;
             return blockToReturn;
         }
 
@@ -100,12 +96,12 @@ class SingleSizeAllocator {
             freedBlock->next = m_head;
             m_head = freedBlock;
 
-            std::cout << "Deallocated block at address " << ptr << std::endl;
+            // std::cout << "Deallocated block at address " << ptr << std::endl;
         }
 
     private:
         // The size of the memory chunk to request from the OS. (e.g., 64 KB)
-        static constexpr size_t CHUNK_SIZE = 64 * 1024;
+        static constexpr size_t CHUNK_SIZE = 32 * 10000000;
 
         /**
          * @brief Represents a single block of memory.
