@@ -8,6 +8,7 @@
 #include <mach/mach.h>
 
 
+
 #if defined(__APPLE__)
 #include <malloc/malloc.h>
 #define GET_ALLOC_SIZE(p) malloc_size(p)
@@ -29,10 +30,12 @@ ProcessMemoryInfo getMemoryInfo() {
     return {info.resident_size, info.virtual_size};
 }
 
+
 void system_malloc_memory() {
     std::cout << "\n--- System Malloc Analysis ---" << std::endl;
     std::vector<void*> pointers;
     pointers.reserve(NUM_ALLOCATIONS);
+
 
     for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
         pointers.push_back(malloc(SMALL_BLOCK_SIZE));
@@ -54,6 +57,7 @@ void system_malloc_memory() {
 
     for (void* p : pointers) {
         free(p);
+
     }
 }
 
@@ -72,6 +76,7 @@ void test_custom_allocator() {
     // Start timing the allocation loop.
     auto start_time = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
+
         char* p = static_cast<char*>(my_pool.allocate());
         if (p) {
             p[0] = 1; // "Touch" the memory to ensure it's committed by the OS.
@@ -100,6 +105,7 @@ void test_custom_allocator() {
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
     size_t delta_vsize = peak_vsize - baseline_vsize;
 
+
     std::cout << "Allocation Time:           " << duration.count() << " ms" << std::endl;
     std::cout << "Peak Virtual Mem Increase: " << delta_vsize / 1024 << " KB" << std::endl;
     
@@ -112,3 +118,4 @@ int main() {
     system_malloc_memory();
     return 0;
 }
+
