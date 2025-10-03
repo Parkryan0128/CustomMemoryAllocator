@@ -1,10 +1,12 @@
 #pragma once
 
-#include "SingleSizeAllocator.hpp" // Contains IAllocator and the MemoryPool template class
+#include "MemoryPool.hpp" // Contains IAllocator and the MemoryPool template class
 #include <array>
 #include <cstdint>
 #include <iostream>
 #include <tuple>
+
+
 
 class PoolAllocator {
 public:
@@ -25,20 +27,20 @@ public:
             m_size_to_pool_index[size] = poolIndex;
         }
 
-        m_pools[0] = new SingleSizeAllocator<8>();
-        m_pools[1] = new SingleSizeAllocator<16>();
-        m_pools[2] = new SingleSizeAllocator<24>();
-        m_pools[3] = new SingleSizeAllocator<32>();
-        m_pools[4] = new SingleSizeAllocator<40>();
-        m_pools[5] = new SingleSizeAllocator<48>();
-        m_pools[6] = new SingleSizeAllocator<56>();
-        m_pools[7] = new SingleSizeAllocator<64>();
-        m_pools[8] = new SingleSizeAllocator<96>();
-        m_pools[9] = new SingleSizeAllocator<128>();
-        m_pools[10] = new SingleSizeAllocator<192>();
-        m_pools[11] = new SingleSizeAllocator<256>();
-        m_pools[12] = new SingleSizeAllocator<384>();
-        m_pools[13] = new SingleSizeAllocator<512>();
+        m_pools[0] = new MemoryPool<8>();
+        m_pools[1] = new MemoryPool<16>();
+        m_pools[2] = new MemoryPool<24>();
+        m_pools[3] = new MemoryPool<32>();
+        m_pools[4] = new MemoryPool<40>();
+        m_pools[5] = new MemoryPool<48>();
+        m_pools[6] = new MemoryPool<56>();
+        m_pools[7] = new MemoryPool<64>();
+        m_pools[8] = new MemoryPool<96>();
+        m_pools[9] = new MemoryPool<128>();
+        m_pools[10] = new MemoryPool<192>();
+        m_pools[11] = new MemoryPool<256>();
+        m_pools[12] = new MemoryPool<384>();
+        m_pools[13] = new MemoryPool<512>();
     
     }
 
@@ -122,7 +124,7 @@ void PoolAllocator::deallocate(void* ptr) {
 }
 
 PoolAllocator::~PoolAllocator() {
-    std::cout << "Destroying PoolAllocator and freeing all pools." << std::endl;
+    // std::cout << "Destroying PoolAllocator and freeing all pools." << std::endl;
     for (auto* pool : m_pools) {
         delete pool;
     }

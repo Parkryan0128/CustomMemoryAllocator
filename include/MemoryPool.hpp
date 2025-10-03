@@ -13,7 +13,7 @@ public:
 };
 
 /**
- * @class SingleSizeAllocator
+ * @class MemoryPool
  * @brief A growable memory pool for blocks of a single, compile-time-defined size.
  *
  * This allocator requests memory from the OS in large chunks. When the initial
@@ -23,19 +23,19 @@ public:
  * @tparam BlockSize The size of each memory block in bytes.
  */
 template <size_t BlockSize>
-class SingleSizeAllocator : public IAllocator {
+class MemoryPool : public IAllocator {
 public:
     /**
      * @brief Constructor that allocates the initial chunk of memory.
      */
-    SingleSizeAllocator() {
+    MemoryPool() {
         grow(); // Allocate the first chunk immediately.
     }
 
     /**
      * @brief Destructor that traverses the list of chunks and returns them to the OS.
      */
-    ~SingleSizeAllocator() {
+    ~MemoryPool() {
         Chunk* current = m_chunkList;
         while (current != nullptr) {
             Chunk* next = current->next;
@@ -44,8 +44,8 @@ public:
         }
     }
 
-    SingleSizeAllocator(const SingleSizeAllocator&) = delete;
-    SingleSizeAllocator& operator=(const SingleSizeAllocator&) = delete;
+    MemoryPool(const MemoryPool&) = delete;
+    MemoryPool& operator=(const MemoryPool&) = delete;
 
     /**
      * @brief Allocates one block of memory. If the pool is empty, it attempts to grow.
@@ -91,7 +91,7 @@ private:
         Block* next;         
     };
     // The size of the memory chunk to request from the OS (e.g., 64 KB).
-    static constexpr size_t CHUNK_SIZE = 64 * 1024;
+    static constexpr size_t CHUNK_SIZE = BlockSize * 2000000;
 
     // Compile-time safety checks to prevent invalid template instantiations.
     // static_assert(BlockSize >= sizeof(Block), "BlockSize must be large enough to hold Block metadata.");

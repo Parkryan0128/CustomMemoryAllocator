@@ -1,7 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <cstdlib>
-#include "SingleSizeAllocator.hpp"
+#include "MemoryPool.hpp"
 #include <chrono>
 #include <iomanip>
 #include <string>
@@ -21,14 +21,11 @@
 #endif
 
 
-void test_basic_allocation();
-void test_multiple_pools();
-void test_boundary_conditions();
-void test_exhaustion_and_reuse();
+
 
 
 constexpr size_t SMALL_BLOCK_SIZE = 8;
-constexpr size_t NUM_ALLOCATIONS = 50000000;
+constexpr size_t NUM_ALLOCATIONS = 5000000;
 constexpr size_t MAX_ALLOC_SIZE = 511;
 
 struct ProcessMemoryInfo { size_t rss; size_t vsize; };
@@ -136,7 +133,7 @@ void system_malloc_time2() {
 
 void test_custom_time() {
    std::cout << "\n--- Testing Custom Allocator (Full Cycle) ---" << std::endl;
-    SingleSizeAllocator<SMALL_BLOCK_SIZE> my_pool;
+    MemoryPool<SMALL_BLOCK_SIZE> my_pool;
     std::vector<void*> pointers;
     pointers.reserve(NUM_ALLOCATIONS);
 
@@ -177,7 +174,7 @@ void test_custom_memory() {
     size_t baseline_vsize = getMemoryInfo().vsize;
 
     // Create the allocator and vector locally for a clean test.
-    SingleSizeAllocator<SMALL_BLOCK_SIZE> my_pool;
+    MemoryPool<SMALL_BLOCK_SIZE> my_pool;
     std::vector<void*> pointers;
     pointers.reserve(NUM_ALLOCATIONS);
 
@@ -359,14 +356,15 @@ void test_system_pool_time() {
 
 
 int main() {
-    // test_custom_memory();
-    // test_custom_time();
     // system_malloc_memory();
-    test_custom_pool_time();
-    test_system_pool_time();
-    
     // system_malloc_time();
 
+    // test_custom_memory();
+    // test_custom_time();
+    
+
+    test_custom_pool_time();
+    test_system_pool_time();
 
     //     std::cout << "--- Running PoolAllocator Test Suite ---" << std::endl;
 
