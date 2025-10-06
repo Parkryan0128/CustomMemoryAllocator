@@ -1,6 +1,6 @@
 #pragma once
 
-#include "MemoryPool.hpp" // Contains IAllocator and the MemoryPool template class
+#include "MemoryPool.hpp"
 #include <array>
 #include <cstdint>
 #include <iostream>
@@ -63,167 +63,13 @@ private:
         Header* next_in_cache; // Used when the block is in a thread cache's free list.
     };
 
-
-    // void* refill_cache_and_allocate(uint8_t poolIndex, size_t size);
-     void refill_cache(uint8_t poolIndex);
-    // std::mutex m_mutex; // A single lock for the central allocator
-        std::array<std::mutex, POOL_SIZES.size()> m_pool_mutexes;
+    void refill_cache(uint8_t poolIndex);
+    std::array<std::mutex, POOL_SIZES.size()> m_pool_mutexes;
     std::array<IAllocator*, POOL_SIZES.size()> m_pools{};
     std::array<uint8_t, POOL_SIZES.back() + 1> m_size_to_pool_index{};
 };
 
 thread_local ThreadCache g_thread_caches[PoolAllocator::POOL_SIZES.size()];
-
-// void* PoolAllocator::allocate(size_t size) {
-//     if (size == 0) {
-//         return nullptr;
-//     }
-
-//     // 2. Calculate the total size needed: the user's request + our 1-byte header.
-//     const size_t total_size = size + sizeof(Header);
-
-//     // 3. Handle large allocations: If the request is too big for our largest pool, fail.
-//     if (total_size > POOL_SIZES.back()) {
-//         return nullptr; // In a more advanced version, this could fall back to system malloc.
-//     }
-    
-//     // 4. Find the correct pool to use with an O(1) lookup in our pre-calculated table.
-//     const uint8_t poolIndex = m_size_to_pool_index[total_size];
-
-
-//     ThreadCache& cache = g_thread_caches[poolIndex];
-//     if (cache.m_head != nullptr) {
-//         void* ptr = cache.m_head;
-//         cache.m_head = *static_cast<void**>(ptr);
-//         cache.m_count--;
-//         return static_cast<void*>(static_cast<Header*>(ptr) + 1);
-//     }
-
-
-//     return refill_cache_and_allocate(poolIndex, size);
-
-    
-//     // // 5. Request a raw, empty block from the appropriate specialist pool.
-//     // void* raw_block = m_pools[poolIndex]->allocate();
-
-//     // // If the pool was exhausted and failed to grow, it will return nullptr.
-//     // if (raw_block == nullptr) {
-//     //     return nullptr;
-//     // }
-
-//     // // 6. "Stamp" the block: Write our 1-byte header into the very beginning of the raw block.
-//     // Header* header = static_cast<Header*>(raw_block);
-//     // header->pool_index = poolIndex;
-    
-//     // // 7. Return the offset pointer: Give the user a pointer to the memory *after* our header.
-//     // return static_cast<void*>(header + 1);
-// }
-
-// void* PoolAllocator::allocate(size_t size) {
-//     if (size == 0) return nullptr;
-//     const size_t required_size = size + sizeof(Header);
-//     if (required_size > POOL_SIZES.back()) return nullptr;
-
-//     const uint8_t poolIndex = m_size_to_pool_index[required_size];
-//     ThreadCache& cache = g_thread_caches[poolIndex];
-
-//     // --- FAST PATH ---
-//     if (cache.m_head != nullptr) {
-//         void* raw_block = cache.m_head;
-//         cache.m_head = *static_cast<void**>(raw_block);
-//         cache.m_count--;
-        
-//         Header* header = static_cast<Header*>(raw_block);
-//         header->pool_index = poolIndex;
-//         return static_cast<void*>(header + 1);
-//     }
-
-//     // --- SLOW PATH ---
-//     return refill_cache_and_allocate(poolIndex, size);
-// }
-
-
-
-// void PoolAllocator::deallocate(void* ptr) {
-//     // 1. Safety check.
-//     if (ptr == nullptr) {
-//         return;
-//     }
-
-//     // 2. Find the header and read the pool index, just as you did.
-//     Header* header = static_cast<Header*>(ptr) - 1;
-//     const uint8_t poolIndex = header->pool_index;
-
-//     // 3. Safety check for the index.
-//     if (poolIndex >= POOL_SIZES.size()) {
-//         std::cerr << "ERROR: Invalid pool index on deallocate! Memory corruption likely.\n";
-//         return;
-//     }
-
-//     // 4. Get this thread's private cache for that pool index.
-//     ThreadCache& cache = g_thread_caches[poolIndex];
-
-//     // 5. Push the block onto the front of this thread's private free list.
-//     // This is the fast, lock-free operation.
-//     // *static_cast<void**>((void*) header) = cache.m_head;
-//     *reinterpret_cast<void**>(header) = cache.m_head;
-//     cache.m_head = header;
-//     cache.m_count++;
-    
-//     // The call to m_pools[poolIndex]->deallocate(header) is now correctly removed.
-// }
-
-
-// void* PoolAllocator::refill_cache_and_allocate(uint8_t poolIndex, size_t size) {
-//     // 1. This is the only place we need to lock.
-//     std::lock_guard<std::mutex> lock(m_mutex);
-
-//     ThreadCache& cache = g_thread_caches[poolIndex];
-
-//     // 2. Fetch a batch of blocks from the central pool.
-//     const size_t batch_size = 20; // This can be tuned.
-//     void* batch_head = nullptr;
-//     void* batch_tail = nullptr;
-//     size_t fetched_count = 0;
-
-//     for (size_t i = 0; i < batch_size; ++i) {
-//         void* block = m_pools[poolIndex]->allocate();
-//         if (block == nullptr) {
-//             break; // Central pool is exhausted.
-//         }
-        
-//         // Form a local linked list of the fetched blocks
-//         *static_cast<void**>(block) = batch_head;
-//         batch_head = block;
-//         if (batch_tail == nullptr) {
-//             batch_tail = block;
-//         }
-//         fetched_count++;
-//     }
-
-//     // If we failed to get any blocks, the central pool is empty.
-//     if (fetched_count == 0) {
-//         return nullptr;
-//     }
-
-//     // 3. Return ONE block to the user to satisfy the initial request.
-//     void* block_to_return = batch_head;
-//     batch_head = *static_cast<void**>(block_to_return);
-//     fetched_count--;
-
-//     // 4. Place the REST of the batch into the thread's cache.
-//     if (fetched_count > 0) {
-//         // The tail of our new batch should point to the old head of the cache
-//         *static_cast<void**>(batch_tail) = cache.m_head;
-//         cache.m_head = batch_head;
-//         cache.m_count += fetched_count;
-//     }
-    
-//     // 5. Write the header on the block we are returning and give it to the user.
-//     Header* header = static_cast<Header*>(block_to_return);
-//     header->pool_index = poolIndex;
-//     return static_cast<void*>(header + 1);
-// }
 
 void* PoolAllocator::allocate(size_t size) {
     if (size == 0) return nullptr;
@@ -233,7 +79,7 @@ void* PoolAllocator::allocate(size_t size) {
     const uint8_t poolIndex = m_size_to_pool_index[required_size];
     ThreadCache& cache = g_thread_caches[poolIndex];
 
-    // --- FAST PATH ---
+FastPath: // A label for our goto
     if (cache.m_head != nullptr) {
         Header* header = static_cast<Header*>(cache.m_head);
         cache.m_head = header->next_in_cache;
@@ -242,21 +88,15 @@ void* PoolAllocator::allocate(size_t size) {
         return static_cast<void*>(header + 1);
     }
 
-    // --- SLOW PATH ---
-    // Refill the cache first.
+    // Slow path: Refill the cache and try the fast path again.
     refill_cache(poolIndex);
 
-    // After refilling, try the fast path again.
+    // If the refill added blocks, jump back to the fast path logic.
     if (cache.m_head != nullptr) {
-        Header* header = static_cast<Header*>(cache.m_head);
-        cache.m_head = header->next_in_cache;
-        cache.m_count--;
-        header->pool_index = poolIndex;
-        return static_cast<void*>(header + 1);
+        goto FastPath;
     }
     
-    // If the refill failed completely.
-    return nullptr;
+    return nullptr; // Refill failed.
 }
 
 void PoolAllocator::deallocate(void* ptr) {

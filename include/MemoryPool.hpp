@@ -93,11 +93,11 @@ private:
         Block* next;         
     };
     // The size of the memory chunk to request from the OS (e.g., 64 KB).
-    static constexpr size_t CHUNK_SIZE = BlockSize * 2000000;
+    static constexpr size_t CHUNK_SIZE = 64 * 1024;
 
     // Compile-time safety checks to prevent invalid template instantiations.
-    // static_assert(BlockSize >= sizeof(Block), "BlockSize must be large enough to hold Block metadata.");
-    // static_assert(CHUNK_SIZE > sizeof(Chunk), "CHUNK_SIZE must be larger than the Chunk metadata struct.");
+    static_assert(BlockSize >= sizeof(Block), "BlockSize must be large enough to hold Block metadata.");
+    static_assert(CHUNK_SIZE > sizeof(Chunk), "CHUNK_SIZE must be larger than the Chunk metadata struct.");
 
     Block* m_head = nullptr;      // The head of the free block list (our stack).
     Chunk* m_chunkList = nullptr; // The head of the list of all allocated chunks.

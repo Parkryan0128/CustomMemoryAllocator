@@ -26,7 +26,7 @@
 
 
 constexpr size_t SMALL_BLOCK_SIZE = 8;
-constexpr size_t NUM_ALLOCATIONS = 200000;
+constexpr size_t NUM_ALLOCATIONS = 500000;
 constexpr size_t MAX_ALLOC_SIZE = 511;
 constexpr size_t MAX_RANDOM_SIZE = 64;
 PoolAllocator g_allocator;
@@ -458,7 +458,7 @@ void test_system_malloc_time() {
 }
 
 
-int main() {
+// int main() {
     // test_custom_allocator_time_thread();
     // test_system_malloc_time();
 
@@ -469,8 +469,8 @@ int main() {
     // test_custom_time();
     
 
-    test_custom_pool_time();
-    test_system_pool_time();
+    // test_custom_pool_time();
+    // test_system_pool_time();
 
     //     std::cout << "--- Running PoolAllocator Test Suite ---" << std::endl;
 
@@ -496,9 +496,85 @@ int main() {
 
     // std::cout << "--- Test Finished ---" << std::endl;
 
-    return 0;
+    // return 0;
+// }
+constexpr size_t NUM_ALLOCATIONS_PER_THREAD = 500000;
+
+// This worker function now takes a specific size to allocate
+void system_malloc_worker(size_t alloc_size) {
+    std::vector<void*> pointers;
+    pointers.reserve(NUM_ALLOCATIONS_PER_THREAD);
+    for (size_t i = 0; i < NUM_ALLOCATIONS_PER_THREAD; ++i) {
+        pointers.push_back(malloc(alloc_size));
+    }
+    for (void* p : pointers) {
+        free(p);
+    }
 }
 
+// This worker function now takes a specific size to allocate
+void custom_allocator_worker(PoolAllocator& allocator, size_t alloc_size) {
+    std::vector<void*> pointers;
+    pointers.reserve(NUM_ALLOCATIONS_PER_THREAD);
+    for (size_t i = 0; i < NUM_ALLOCATIONS_PER_THREAD; ++i) {
+        pointers.push_back(allocator.allocate(alloc_size));
+    }
+    for (void* p : pointers) {
+        allocator.deallocate(p);
+    }
+}
+
+int main() {
+    const unsigned int num_threads = std::thread::hardware_concurrency();
+    std::cout << "--- Starting Multi-threaded Benchmark (Realistic Workload) ---" << std::endl;
+    std::cout << "Using " << num_threads << " threads." << std::endl;
+    std::cout << "Allocations per thread: " << NUM_ALLOCATIONS_PER_THREAD << std::endl;
+
+    // --- Generate a set of random (but fixed) tasks for each thread ---
+    std::vector<size_t> sizes_for_threads;
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    // Get random pool indices to test contention on different pools
+    std::uniform_int_distribution<> distrib(0, PoolAllocator::POOL_SIZES.size() - 1);
+    for (unsigned int i = 0; i < num_threads; ++i) {
+        sizes_for_threads.push_back(PoolAllocator::POOL_SIZES[distrib(gen)]);
+    }
+
+    // --- Test System Malloc ---
+    {
+        std::cout << "\nTesting System Malloc..." << std::endl;
+        std::vector<std::thread> threads;
+        auto start_time = std::chrono::high_resolution_clock::now();
+        for (unsigned int i = 0; i < num_threads; ++i) {
+            threads.emplace_back(system_malloc_worker, sizes_for_threads[i]);
+        }
+        for (auto& t : threads) {
+            t.join();
+        }
+        auto end_time = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        std::cout << "Total time for system malloc: " << duration.count() << " ms" << std::endl;
+    }
+
+    // --- Test Custom Allocator ---
+    {
+        std::cout << "\nTesting Custom PoolAllocator..." << std::endl;
+        PoolAllocator my_allocator;
+        std::vector<std::thread> threads;
+        auto start_time = std::chrono::high_resolution_clock::now();
+        for (unsigned int i = 0; i < num_threads; ++i) {
+            threads.emplace_back(custom_allocator_worker, std::ref(my_allocator), sizes_for_threads[i]);
+        }
+        for (auto& t : threads) {
+            t.join();
+        }
+        auto end_time = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        std::cout << "Total time for custom allocator: " << duration.count() << " ms" << std::endl;
+    }
+
+    return 0;
+}
 
 
 // #include "PoolAllocator.hpp"
