@@ -12,6 +12,7 @@ public:
     virtual void deallocate(void* ptr) = 0;
 };
 
+
 /**
  * @class MemoryPool
  * @brief A growable memory pool for blocks of a single, compile-time-defined size.
@@ -88,6 +89,7 @@ private:
 
     // Represents a single block of memory, which is part of a chunk.
     union Block {
+        char data[BlockSize]; // This makes the block the correct size
         Block* next;         
     };
     // The size of the memory chunk to request from the OS (e.g., 64 KB).
