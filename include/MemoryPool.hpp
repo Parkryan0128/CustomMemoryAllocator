@@ -5,12 +5,12 @@
 #include <iostream> // For logging
 
 
-class IAllocator {
-public:
-    virtual ~IAllocator() = default;
-    virtual void* allocate() = 0;
-    virtual void deallocate(void* ptr) = 0;
-};
+// class IAllocator {
+// public:
+//     virtual ~IAllocator() = default;
+//     virtual void* allocate() = 0;
+//     virtual void deallocate(void* ptr) = 0;
+// };
 
 
 /**
@@ -24,7 +24,7 @@ public:
  * @tparam BlockSize The size of each memory block in bytes.
  */
 template <size_t BlockSize>
-class MemoryPool : public IAllocator {
+class MemoryPool {
 public:
     /**
      * @brief Constructor that allocates the initial chunk of memory.
@@ -52,7 +52,7 @@ public:
      * @brief Allocates one block of memory. If the pool is empty, it attempts to grow.
      * @return A pointer to the allocated block, or nullptr if memory is exhausted.
      */
-    void* allocate() override {
+    void* allocate() {
         if (m_head == nullptr) {
             grow();
         }
@@ -71,7 +71,7 @@ public:
      * @brief Returns a block of memory to the pool.
      * @param ptr A pointer to the memory block to deallocate.
      */
-    void deallocate(void* ptr) override {
+    void deallocate(void* ptr) {
         if (ptr == nullptr) {
             return;
         }

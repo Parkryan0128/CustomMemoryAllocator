@@ -1,552 +1,414 @@
+#include "PoolAllocator.hpp"
 #include <iostream>
 #include <vector>
-#include <cstdlib>
-#include "MemoryPool.hpp"
-#include <chrono>
-#include <iomanip>
 #include <string>
-// #include <mach/mach.h>
-#include <random> 
+#include <chrono>
 #include <thread>
+#include <random>
+#include <iomanip>
 
-
-#include "PoolAllocator.hpp"
-#include <cassert> // For assert()
-
-
+// --- Platform-specific includes for memory measurement ---
 #if defined(__APPLE__)
-#include <malloc/malloc.h>
-#define GET_ALLOC_SIZE(p) malloc_size(p)
-#else
-#define GET_ALLOC_SIZE(p) 0
+#include <mach/mach.h>
+#elif defined(__linux__)
+#include <fstream>
+#include <string>
+#include <sstream>
 #endif
 
 
+#include <cassert>
 
+// --- BENCHMARK PARAMETERS (Tune these as needed) ---
+// constexpr size_t NUM_ALLOCATIONS_SINGLE = 10000000; // For single-threaded tests
+// constexpr size_t NUM_ALLOCATIONS_MULTI = 2000000;  // Per thread for multi-threaded tests
+constexpr size_t FIXED_BLOCK_SIZE = 32;
+constexpr size_t MAX_RANDOM_SIZE = 128;
 
+// =================================================================================
+// MEMORY MEASUREMENT HELPERS
+// =================================================================================
 
-constexpr size_t SMALL_BLOCK_SIZE = 8;
-constexpr size_t NUM_ALLOCATIONS = 500000;
-constexpr size_t MAX_ALLOC_SIZE = 511;
-constexpr size_t MAX_RANDOM_SIZE = 64;
-PoolAllocator g_allocator;
+struct ProcessMemoryInfo {
+    size_t rss;   // Physical Memory (Resident Set Size)
+    size_t vsize; // Virtual Memory
+};
 
-void worker_thread() {
-    // Each thread will try to allocate 10 small blocks.
-    for (int i = 0; i < 10; ++i) {
-        void* p = g_allocator.allocate(8);
-        if (p == nullptr) {
-            std::cout << "[Thread " << std::this_thread::get_id() << "] Allocation failed.\n";
+#if defined(__APPLE__)
+ProcessMemoryInfo getMemoryInfo() {
+    mach_task_basic_info_data_t info;
+    mach_msg_type_number_t infoCount = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &infoCount) != KERN_SUCCESS) {
+        return {0, 0};
+    }
+    return {info.resident_size, info.virtual_size};
+}
+#elif defined(__linux__)
+ProcessMemoryInfo getMemoryInfo() {
+    std::ifstream status_file("/proc/self/status");
+    if (!status_file.is_open()) {
+        return {0, 0};
+    }
+    std::string line;
+    size_t vsize = 0, rss = 0;
+    while (std::getline(status_file, line)) {
+        std::stringstream ss(line);
+        std::string key;
+        ss >> key;
+        if (key == "VmSize:") {
+            ss >> vsize;
+        } else if (key == "VmRSS:") {
+            ss >> rss;
+        }
+    }
+    return {rss * 1024, vsize * 1024}; // Values are in KB, convert to bytes
+}
+#else
+ProcessMemoryInfo getMemoryInfo() {
+    // Unsupported platform
+    return {0, 0};
+}
+#endif
+
+// =================================================================================
+// BENCHMARK IMPLEMENTATIONS
+// =================================================================================
+
+/**
+ * BENCHMARK 1: Single-thread, single-size throughput test.
+ */
+long long benchmark_single_size(bool useCustomAllocator, size_t num_allocations) {
+    // std::cout << "\n--- Benchmark: Single-Size Throughput ---" << std::endl;
+    std::vector<void*> pointers;
+    pointers.reserve(num_allocations);
+    MemoryPool<FIXED_BLOCK_SIZE> my_allocator;
+
+    auto start_time = std::chrono::high_resolution_clock::now();
+    for (size_t i = 0; i < num_allocations; ++i) {
+        if (useCustomAllocator) {
+            pointers.push_back(my_allocator.allocate());
         } else {
-            std::cout << "[Thread " << std::this_thread::get_id() << "] Allocation succeeded.\n";
-            // In a real program, we would use and then deallocate p.
+            pointers.push_back(malloc(FIXED_BLOCK_SIZE));
+        }
+    }
+    for (void* p : pointers) {
+        if (useCustomAllocator) {
+            my_allocator.deallocate(p);
+        } else {
+            free(p);
+        }
+    }
+    auto end_time = std::chrono::high_resolution_clock::now();
+    // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    // std::cout << "Total Time: " << duration.count() << " ms" << std::endl;
+    return std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+}
+
+/**
+ * BENCHMARK 2: Single-thread, random-size throughput test.
+ */
+long long benchmark_random_size(bool useCustomAllocator, size_t num_allocations, PoolAllocator& my_allocator) {
+    // std::cout << "\n--- Benchmark: Random-Size Throughput ---" << std::endl;
+    std::vector<void*> pointers;
+    pointers.reserve(num_allocations);
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> distrib(1, MAX_RANDOM_SIZE);
+
+    auto start_time = std::chrono::high_resolution_clock::now();
+    for (size_t i = 0; i < num_allocations; ++i) {
+        size_t size = distrib(gen);
+        if (useCustomAllocator) {
+            pointers.push_back(my_allocator.allocate(size));
+        } else {
+            pointers.push_back(malloc(size));
+        }
+    }
+    for (void* p : pointers) {
+        if (useCustomAllocator) {
+            my_allocator.deallocate(p);
+        } else {
+            free(p);
+        }
+    }
+    auto end_time = std::chrono::high_resolution_clock::now();
+    // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    
+    return std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+}
+
+// Worker function for the multi-threaded test
+void multi_thread_worker(PoolAllocator* allocator, size_t size, bool useCustom, size_t num_allocations) {
+    std::vector<void*> pointers;
+    pointers.reserve(num_allocations);
+    for (size_t i = 0; i < num_allocations; ++i) {
+        if (useCustom) {
+            pointers.push_back(allocator->allocate(size));
+        } else {
+            pointers.push_back(malloc(size));
+        }
+    }
+    for (void* p : pointers) {
+        if (useCustom) {
+            allocator->deallocate(p);
+        } else {
+            free(p);
         }
     }
 }
 
-struct ProcessMemoryInfo { size_t rss; size_t vsize; };
+/**
+ * BENCHMARK 3: Multi-threaded contention test.
+ */
+long long benchmark_multi_thread(bool useCustomAllocator, size_t num_allocations, PoolAllocator& my_allocator) {
+    // std::cout << "\n--- Benchmark: Multi-Threaded Contention ---" << std::endl;
+    const unsigned int num_threads = std::thread::hardware_concurrency();
+    // std::cout << "Using " << num_threads << " threads." << std::endl;
 
-// ProcessMemoryInfo getMemoryInfo() {
-//     mach_task_basic_info_data_t info;
-//     mach_msg_type_number_t infoCount = MACH_TASK_BASIC_INFO_COUNT;
-//     if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &infoCount) != KERN_SUCCESS) {
-//         return {0, 0};
-//     }
-//     return {info.resident_size, info.virtual_size};
-// }
-
-
-void system_malloc_memory() {
-    std::cout << "\n--- System Malloc Analysis ---" << std::endl;
-    std::vector<void*> pointers;
-    pointers.reserve(NUM_ALLOCATIONS);
-
-
-    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
-        pointers.push_back(malloc(SMALL_BLOCK_SIZE));
-    }
-
-    size_t total_usable_size = 0;
-    for (void* p : pointers) {
-        total_usable_size += GET_ALLOC_SIZE(p);
-    }
-    
-    // Also add the memory for the vector itself!
-    size_t vector_overhead = NUM_ALLOCATIONS * sizeof(void*);
-    size_t total_footprint_best_case = total_usable_size + vector_overhead;
-
-    std::cout << "Total usable block size (from malloc's internal report): " 
-              << total_usable_size / 1024 << " KB" << std::endl;
-    std::cout << "Vector overhead: " << vector_overhead / 1024 << " KB" << std::endl;
-    std::cout << "Total Best-Case Footprint: " << total_footprint_best_case / 1024 << " KB" << std::endl;
-
-    for (void* p : pointers) {
-        free(p);
-
-    }
-}
-void system_malloc_time() {
-   std::cout << "\n--- Testing System Malloc (Full Cycle) ---" << std::endl;
-    std::vector<void*> pointers;
-    pointers.reserve(NUM_ALLOCATIONS);
-
-    // Start the timer *before* the entire workload.
-    auto start_time = std::chrono::high_resolution_clock::now();
-
-    // --- WORKLOAD START ---
-    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
-        char* p = static_cast<char*>(malloc(SMALL_BLOCK_SIZE));
-        if (p) { p[0] = 1; }
-        pointers.push_back(p);
-    }
-    
-    long long sum = 0; // Read the memory to ensure it's not optimized away.
-    for (void* p : pointers) {
-        if (p) sum += static_cast<char*>(p)[0];
-    }
-
-    for (void* p : pointers) {
-        free(p);
-    }
-    // --- WORKLOAD END ---
-
-    // Stop the timer *after* the entire workload is complete.
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-
-    std::cout << "Total time for system malloc: " << duration.count() << " ms" << std::endl;
-    if (sum != NUM_ALLOCATIONS) std::cout << "Sum mismatch!" << std::endl;
-}
-
-void system_malloc_time2() {
-    std::cout << "\n--- System Malloc Time Analysis ---" << std::endl;
-    std::vector<void*> pointers;
-    pointers.reserve(NUM_ALLOCATIONS);
-
+    std::vector<std::thread> threads;
     std::random_device rd;
-
-    // 2. Create a random number engine and seed it with the random_device.
-    //    std::mt19937 is a high-quality engine (Mersenne Twister).
     std::mt19937 gen(rd());
-
-    // 3. Create a distribution that will map the engine's output to your desired range [0, 24].
-    std::uniform_int_distribution<> distrib(0, 24);
-
-    // Generate and print a random number.
-    // int random_number = distrib(gen);
+    std::uniform_int_distribution<> distrib(0, PoolAllocator::POOL_SIZES.size() - 1);
+    
     auto start_time = std::chrono::high_resolution_clock::now();
-    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
-        pointers.push_back(malloc(distrib(gen)));
+    for (unsigned int i = 0; i < num_threads; ++i) {
+        // Each thread works on a different, fixed pool size
+        size_t size = PoolAllocator::POOL_SIZES[distrib(gen)];
+        threads.emplace_back(multi_thread_worker, &my_allocator, size, useCustomAllocator, num_allocations);
+    }
+    for (auto& t : threads) {
+        t.join();
     }
     auto end_time = std::chrono::high_resolution_clock::now();
-
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-    for (void* p : pointers) {
-        free(p);
-    }
-    std::cout << "Allocation Time for system malloc:           " << duration.count() << " ms" << std::endl;
+    return duration.count();
 }
 
-void test_custom_time() {
-   std::cout << "\n--- Testing Custom Allocator (Full Cycle) ---" << std::endl;
-    MemoryPool<SMALL_BLOCK_SIZE> my_pool;
-    std::vector<void*> pointers;
-    pointers.reserve(NUM_ALLOCATIONS);
-
-    // Start the timer.
+long long run_benchmark(bool useCustom, size_t num_alloc_per_thread, PoolAllocator& my_allocator) {
+    const unsigned int num_threads = std::thread::hardware_concurrency();
+    // PoolAllocator my_allocator;
+    std::vector<std::thread> threads;
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> distrib(0, PoolAllocator::POOL_SIZES.size() - 1);
+    
     auto start_time = std::chrono::high_resolution_clock::now();
-
-    // --- WORKLOAD START ---
-    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
-        char* p = static_cast<char*>(my_pool.allocate());
-        if (p) { p[0] = 1; }
-        pointers.push_back(p);
+    for (unsigned int i = 0; i < num_threads; ++i) {
+        size_t size = PoolAllocator::POOL_SIZES[distrib(gen)];
+        threads.emplace_back(multi_thread_worker, &my_allocator, size, useCustom, num_alloc_per_thread);
     }
-    
-    long long sum = 0;
-    for (void* p : pointers) {
-        if (p) sum += static_cast<char*>(p)[0];
+    for (auto& t : threads) {
+        t.join();
     }
-
-    for (void* p : pointers) {
-        my_pool.deallocate(p);
-    }
-    // --- WORKLOAD END ---
-
-    // Stop the timer.
     auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-
-    std::cout << "Total time for custom malloc: " << duration.count() << " ms" << std::endl;
-    if (sum != NUM_ALLOCATIONS) std::cout << "Sum mismatch!" << std::endl;
-
+    return std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
 }
 
-
-// void test_custom_memory() {
-//     std::cout << "\n--- Testing Custom Allocator ---" << std::endl;
+/**
+ * BENCHMARK 4: Memory footprint analysis.
+ */
+// void benchmark_memory(bool useCustomAllocator) {
+//     std::cout << "\n--- Benchmark: Memory Footprint ---" << std::endl;
     
-//     // 1. Measure the baseline virtual memory before creating the pool or vector.
 //     size_t baseline_vsize = getMemoryInfo().vsize;
 
-//     // Create the allocator and vector locally for a clean test.
-//     MemoryPool<SMALL_BLOCK_SIZE> my_pool;
+//     PoolAllocator my_allocator;
 //     std::vector<void*> pointers;
-//     pointers.reserve(NUM_ALLOCATIONS);
+//     pointers.reserve(NUM_ALLOCATIONS_MULTI); // Use a smaller number for memory tests
 
-//     // Start timing the allocation loop.
-//     auto start_time = std::chrono::high_resolution_clock::now();
-//     for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
-//         pointers.push_back(my_pool.allocate());
-//     }
-    
-    
-//     auto end_time = std::chrono::high_resolution_clock::now();
-
-//     // 2. Measure the peak virtual memory after all allocations are complete.
-//     size_t peak_vsize = getMemoryInfo().vsize;
-
-//     // Clean up all the memory that was allocated.
-//     for (void* p : pointers) {
-//         my_pool.deallocate(p);
-//     }
-    
-//     // 3. Calculate the difference (delta) and print the results.
-//     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-//     size_t delta_vsize = peak_vsize - baseline_vsize;
-
-
-//     std::cout << "Allocation Time:           " << duration.count() << " ms" << std::endl;
-//     std::cout << "Peak Virtual Mem Increase: " << delta_vsize / 1024 << " KB" << std::endl;
-    
-//     // This final check ensures the 'sum' calculation is used and not optimized away.
-//     // if (sum != NUM_ALLOCATIONS) std::cout << "Sum mismatch!" << std::endl;
-// }
-
-
-
-// void test_custom_allocator2() {
-//     std::cout << "\n--- Testing Custom Allocator ---" << std::endl;
-    
-//     // 1. Measure the baseline virtual memory before creating the pool or vector.
-//     size_t baseline_vsize = getMemoryInfo().vsize;
-
-//     // Create the allocator and vector locally for a clean test.
-//     // SingleSizeAllocator<SMALL_BLOCK_SIZE> my_pool;
-//     MyAlloc::PoolAllocator allocator;
-//     std::vector<void*> pointers;
-//     pointers.reserve(NUM_ALLOCATIONS);
-
-//     // Start timing the allocation loop.
-// std::random_device rd;
-
-//     // 2. Create a random number engine and seed it with the random_device.
-//     //    std::mt19937 is a high-quality engine (Mersenne Twister).
-//     std::mt19937 gen(rd());
-
-//     // 3. Create a distribution that will map the engine's output to your desired range [0, 24].
-//     std::uniform_int_distribution<> distrib(0, 24);
-
-//     auto start_time = std::chrono::high_resolution_clock::now();
-//     for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
-
-//         char* p = static_cast<char*>(allocator.allocate(distrib(gen)));
-//         if (p) {
-//             p[0] = 1; // "Touch" the memory to ensure it's committed by the OS.
+//     for (size_t i = 0; i < NUM_ALLOCATIONS_MULTI; ++i) {
+//         char* p;
+//         if (useCustomAllocator) {
+//             p = static_cast<char*>(my_allocator.allocate(FIXED_BLOCK_SIZE));
+//         } else {
+//             p = static_cast<char*>(malloc(FIXED_BLOCK_SIZE));
 //         }
+//         if (p) { p[0] = 1; }
 //         pointers.push_back(p);
 //     }
     
-//     // Create a data dependency by reading the memory, which prevents
-//     // the compiler from optimizing away the allocation loop.
-//     long long sum = 0;
-//     for (void* p : pointers) {
-//         if (p) sum += static_cast<char*>(p)[0];
-//     }
-    
-//     auto end_time = std::chrono::high_resolution_clock::now();
-
-//     // 2. Measure the peak virtual memory after all allocations are complete.
 //     size_t peak_vsize = getMemoryInfo().vsize;
-
-//     // Clean up all the memory that was allocated.
+    
+//     // Cleanup
 //     for (void* p : pointers) {
-//         allocator.deallocate(p);
+//         if (useCustomAllocator) {
+//             my_allocator.deallocate(p);
+//         } else {
+//             free(p);
+//         }
 //     }
-    
-//     // 3. Calculate the difference (delta) and print the results.
-//     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+
 //     size_t delta_vsize = peak_vsize - baseline_vsize;
-
-
-//     std::cout << "Allocation Time:           " << duration.count() << " ms" << std::endl;
 //     std::cout << "Peak Virtual Mem Increase: " << delta_vsize / 1024 << " KB" << std::endl;
-    
-//     // This final check ensures the 'sum' calculation is used and not optimized away.
-//     if (sum != NUM_ALLOCATIONS) std::cout << "Sum mismatch!" << std::endl;
 // }
 
-
-void test_custom_pool_time() {
-    std::cout << "\n--- Testing Custom PoolAllocator (Random Sizes) ---" << std::endl;
-    PoolAllocator my_allocator;
-    std::vector<void*> pointers;
-    pointers.reserve(NUM_ALLOCATIONS);
-
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distrib(1, 64);
-
-    // --- Start the timer ---
-    auto start_time = std::chrono::high_resolution_clock::now();
-
-    // 1. ALLOCATION PHASE
-    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
-        const size_t random_size = distrib(gen);
-        char* p = static_cast<char*>(my_allocator.allocate(random_size));
-        if (p) { p[0] = 1; }
-        pointers.push_back(p);
-    }
-    
-    // 2. USE PHASE
-    long long sum = 0;
-    for (void* p : pointers) {
-        if (p) sum += static_cast<char*>(p)[0];
-    }
-
-    // 3. DEALLOCATION PHASE
-    for (void* p : pointers) {
-        my_allocator.deallocate(p);
-    }
-    
-    // --- Stop the timer ---
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-
-    std::cout << "Total time for custom malloc: " << duration.count() << " ms" << std::endl;
-    if (sum == 0) std::cout << "Warning: sum was zero!" << std::endl; // Use sum
-}
+// =================================================================================
+// MAIN FUNCTION (Argument Parser)
+// =================================================================================
 
 
+int main(int argc, char* argv[]) {
+    // std::vector<size_t> allocation_counts = {};
 
-void test_system_pool_time() {
-    std::cout << "\n--- Testing System Malloc (Random Sizes) ---" << std::endl;
-    std::vector<void*> pointers;
-    pointers.reserve(NUM_ALLOCATIONS);
+    // const std::vector<size_t> allocation_counts = {
+    //     1000, 10000, 50000, 100000, 250000, 500000, 1000000
+    // };
 
-    // Setup for generating random numbers in our desired range.
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distrib(1, 64);
-
-    // --- Start the timer for the full cycle ---
-    auto start_time = std::chrono::high_resolution_clock::now();
-
-    // 1. ALLOCATION PHASE
-    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
-        const size_t random_size = distrib(gen);
-        char* p = static_cast<char*>(malloc(random_size));
-        if (p) { p[0] = 1; } // "Touch" the memory
-        pointers.push_back(p);
-    }
-    
-    // 2. USE PHASE (prevents compiler from optimizing away allocations)
-    long long sum = 0;
-    for (void* p : pointers) {
-        if (p) sum += static_cast<char*>(p)[0];
-    }
-
-    // 3. DEALLOCATION PHASE
-    for (void* p : pointers) {
-        free(p);
-    }
-    
-    // --- Stop the timer ---
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-
-    std::cout << "Total time for system malloc: " << duration.count() << " ms" << std::endl;
-    if (sum == 0) std::cout << "Warning: sum was zero!" << std::endl; // Use sum
-}
-
-
-
-void test_custom_allocator_time_thread() {
-    std::cout << "\n--- Testing Custom PoolAllocator (Random Sizes) ---" << std::endl;
-    
-    // Create an instance of your allocator.
-    PoolAllocator my_allocator;
-    
-    std::vector<void*> pointers;
-    pointers.reserve(NUM_ALLOCATIONS);
-
-    // Use the same random number generation setup for a fair test.
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distrib(1, MAX_RANDOM_SIZE);
-
-    // --- Start the timer ---
-    auto start_time = std::chrono::high_resolution_clock::now();
-
-    // 1. ALLOCATION PHASE
-    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
-        const size_t random_size = distrib(gen);
-        // Call your allocator's allocate method.
-        char* p = static_cast<char*>(my_allocator.allocate(random_size));
-        if (p) { p[0] = 1; }
-        pointers.push_back(p);
-    }
-    
-    // 2. USE PHASE
-    long long sum = 0;
-    for (void* p : pointers) {
-        if (p) sum += static_cast<char*>(p)[0];
-    }
-
-    // 3. DEALLOCATION PHASE
-    for (void* p : pointers) {
-        // Call your allocator's deallocate method.
-        my_allocator.deallocate(p);
-    }
-    
-    // --- Stop the timer ---
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-
-    std::cout << "Total time for custom allocator: " << duration.count() << " ms" << std::endl;
-    if (sum == 0) std::cout << "Warning: sum was zero!" << std::endl; // Use sum
-}
-
-void test_system_malloc_time() {
-    std::cout << "\n--- Testing System Malloc (Random Sizes) ---" << std::endl;
-    std::vector<void*> pointers;
-    pointers.reserve(NUM_ALLOCATIONS);
-
-    // Setup for generating random numbers in our desired range.
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distrib(1, MAX_RANDOM_SIZE);
-
-    // --- Start the timer for the full cycle ---
-    auto start_time = std::chrono::high_resolution_clock::now();
-
-    // 1. ALLOCATION PHASE
-    for (size_t i = 0; i < NUM_ALLOCATIONS; ++i) {
-        const size_t random_size = distrib(gen);
-        char* p = static_cast<char*>(malloc(random_size));
-        if (p) { p[0] = 1; } // "Touch" the memory
-        pointers.push_back(p);
-    }
-    
-    // 2. USE PHASE (prevents compiler from optimizing away allocations)
-    long long sum = 0;
-    for (void* p : pointers) {
-        if (p) sum += static_cast<char*>(p)[0];
-    }
-
-    // 3. DEALLOCATION PHASE
-    for (void* p : pointers) {
-        free(p);
-    }
-    
-    // --- Stop the timer ---
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-
-    std::cout << "Total time for system malloc: " << duration.count() << " ms" << std::endl;
-    if (sum == 0) std::cout << "Warning: sum was zero!" << std::endl; // Use sum
-}
-
-
-// int main() {
-    // test_custom_allocator_time_thread();
-    // test_system_malloc_time();
-
-    // system_malloc_memory();
-    // system_malloc_time();
-
-    // test_custom_memory();
-    // test_custom_time();
-    
-
-    // test_custom_pool_time();
-    // test_system_pool_time();
-
-    //     std::cout << "--- Running PoolAllocator Test Suite ---" << std::endl;
-
-    // test_basic_allocation();
-    // test_multiple_pools();
-    // test_boundary_conditions();
-    // test_exhaustion_and_reuse();
-
-
-    // std::cout << "\n✅ All tests passed!" << std::endl;
-    // std::cout << "--- Starting Multi-threaded Test ---" << std::endl;
-    
-    // std::vector<std::thread> threads;
-    // const int num_threads = 4;
-
-    // for (int i = 0; i < num_threads; ++i) {
-    //     threads.emplace_back(worker_thread);
+    // for (size_t i = 500000; i < 2000000; i += 100000) {
+    //     allocation_counts.push_back(i);
     // }
 
-    // for (auto& t : threads) {
-    //     t.join();
+    // for (size_t i = 0; i < 50000; i += 1000) {
+    //     allocation_counts.push_back(i);
+    // }
+    
+    // Number of times to run each test to get a stable median.
+    // const int num_runs_per_test = 3;
+
+    // // Print the CSV header.
+    // std::cout << "allocator_type,benchmark_type,num_allocations,time_ms" << std::endl;
+
+    // // Loop through each allocation count.
+    // for (const size_t count : allocation_counts) {
+    //     std::vector<long long> system_times;
+    //     std::vector<long long> custom_times;
+
+    //     // Run each test multiple times.
+    //     for (int i = 0; i < num_runs_per_test; ++i) {
+    //         system_times.push_back(benchmark_single_size(false, count));
+    //         custom_times.push_back(benchmark_single_size(true, count));
+    //     }
+
+    //     // Calculate the median time for each.
+    //     std::sort(system_times.begin(), system_times.end());
+    //     std::sort(custom_times.begin(), custom_times.end());
+    //     long long system_median = system_times[num_runs_per_test / 2];
+    //     long long custom_median = custom_times[num_runs_per_test / 2];
+        
+    //     // Print the results for this allocation count in CSV format.
+    //     std::cout << "system,single_size," << count << "," << system_median << std::endl;
+    //     std::cout << "custom,single_size," << count << "," << custom_median << std::endl;
     // }
 
-    // std::cout << "--- Test Finished ---" << std::endl;
 
-    // return 0;
-// }
-constexpr size_t NUM_ALLOCATIONS_PER_THREAD = 500000;
 
-// This worker function now takes a specific size to allocate
-void system_malloc_worker(size_t alloc_size) {
-    std::vector<void*> pointers;
-    pointers.reserve(NUM_ALLOCATIONS_PER_THREAD);
-    for (size_t i = 0; i < NUM_ALLOCATIONS_PER_THREAD; ++i) {
-        pointers.push_back(malloc(alloc_size));
-    }
-    for (void* p : pointers) {
-        free(p);
-    }
-}
 
-// This worker function now takes a specific size to allocate
-void custom_allocator_worker(PoolAllocator& allocator, size_t alloc_size) {
-    std::vector<void*> pointers;
-    pointers.reserve(NUM_ALLOCATIONS_PER_THREAD);
-    for (size_t i = 0; i < NUM_ALLOCATIONS_PER_THREAD; ++i) {
-        pointers.push_back(allocator.allocate(alloc_size));
-    }
-    for (void* p : pointers) {
-        allocator.deallocate(p);
-    }
-}
+    // PoolAllocator my_allocator;
+    // std::cout << "allocator_type,benchmark_type,num_allocations,time_ms" << std::endl;
 
-int main() {
+    // // Loop through each allocation count.
+    // for (const size_t count : allocation_counts) {
+    //     std::vector<long long> system_times;
+    //     std::vector<long long> custom_times;
+
+    //     // Run each test multiple times.
+    //     for (int i = 0; i < num_runs_per_test; ++i) {
+    //         system_times.push_back(benchmark_random_size(false, count, my_allocator));
+    //         custom_times.push_back(benchmark_random_size(true, count, my_allocator));
+    //     }
+
+    //     // Calculate the median time for each.
+    //     std::sort(system_times.begin(), system_times.end());
+    //     std::sort(custom_times.begin(), custom_times.end());
+    //     long long system_median = system_times[num_runs_per_test / 2];
+    //     long long custom_median = custom_times[num_runs_per_test / 2];
+        
+    //     // Print the results for this allocation count in CSV format.
+    //     std::cout << "system,random_size," << count << "," << system_median << std::endl;
+    //     std::cout << "custom,random_size," << count << "," << custom_median << std::endl;
+    // }
+
+
+
+    // PoolAllocator my_allocator;
+    // std::cout << "allocator_type,benchmark_type,num_allocations,time_ms" << std::endl;
+
+    // // Loop through each allocation count.
+    // for (const size_t count : allocation_counts) {
+    //     std::vector<long long> system_times;
+    //     std::vector<long long> custom_times;
+
+    //     // Run each test multiple times.
+    //     for (int i = 0; i < num_runs_per_test; ++i) {
+    //         system_times.push_back(benchmark_multi_thread(false, count, my_allocator));
+    //         custom_times.push_back(benchmark_multi_thread(true, count, my_allocator));
+    //     }
+
+    //     // Calculate the median time for each.
+    //     std::sort(system_times.begin(), system_times.end());
+    //     std::sort(custom_times.begin(), custom_times.end());
+    //     long long system_median = system_times[num_runs_per_test / 2];
+    //     long long custom_median = custom_times[num_runs_per_test / 2];
+        
+    //     // Print the results for this allocation count in CSV format.
+    //     std::cout << "system,multi_thread," << count << "," << system_median << std::endl;
+    //     std::cout << "custom,multi_thread," << count << "," << custom_median << std::endl;
+    // }
+
+
+    //     const std::vector<size_t> allocation_counts = {
+    //     10000, 30000, 50000, 100000, 250000, 500000, 1000000
+    // };
+
+
+    // const unsigned int num_threads = std::thread::hardware_concurrency();
+    // PoolAllocator my_allocator;
+    // std::cout << "allocator_type,benchmark_type,num_allocations,throughput_M_ops_per_sec" << std::endl;
+
+    // for (const size_t count : allocation_counts) {
+    //     // Run Custom Allocator Test
+    //     long long custom_time_ms = run_benchmark(true, count, my_allocator);
+    //     double custom_throughput = (static_cast<double>(count * num_threads) / (custom_time_ms / 1000.0)) / 1000000.0;
+    //     std::cout << "custom,multi_thread," << count << "," << custom_throughput << std::endl;
+    //     // Run System Malloc Test
+    //     long long system_time_ms = run_benchmark(false, count, my_allocator);
+    //     double system_throughput = (static_cast<double>(count * num_threads) / (system_time_ms / 1000.0)) / 1000000.0;
+    //     std::cout << "system,multi_thread," << count << "," << system_throughput << std::endl;
+
+    // }
+
+    // std::cout << "Benchmark for random sized memory" << std::endl;
+    // std::cout << std::endl;
+    // std::cout << std::endl;
+    // std::cout << "Custom" << std::endl;
+    // benchmark_random_size(true, 5000000);
+    // std::cout << std::endl;
+    // std::cout << std::endl;
+    // std::cout << "System" << std::endl;
+    // benchmark_random_size(false, 5000000);
+
+
+    // std::cout << "Benchmark for multi-threading" << std::endl;
+    // std::cout << std::endl;
+    // std::cout << std::endl;
+    // std::cout << "Custom" << std::endl;
+    // benchmark_multi_thread(true, 100000);
+    // std::cout << std::endl;
+    // std::cout << std::endl;
+    // std::cout << "System" << std::endl;
+    // benchmark_multi_thread(false, 100000);
+
+    // benchmark_memory(use_custom_allocator);
+
+
+
+
+
     const unsigned int num_threads = std::thread::hardware_concurrency();
-    std::cout << "--- Starting Multi-threaded Benchmark (Realistic Workload) ---" << std::endl;
-    std::cout << "Using " << num_threads << " threads." << std::endl;
-    std::cout << "Allocations per thread: " << NUM_ALLOCATIONS_PER_THREAD << std::endl;
-
-    // --- Generate a set of random (but fixed) tasks for each thread ---
-    std::vector<size_t> sizes_for_threads;
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    // Get random pool indices to test contention on different pools
-    std::uniform_int_distribution<> distrib(0, PoolAllocator::POOL_SIZES.size() - 1);
-    for (unsigned int i = 0; i < num_threads; ++i) {
-        sizes_for_threads.push_back(PoolAllocator::POOL_SIZES[distrib(gen)]);
-    }
+    const size_t num_alloc_per_thread = 5000000;
+    std::cout << "--- Starting Final Multi-threaded Benchmark ---" << std::endl;
+    std::cout << "Usiddng " << num_threads << " threads, each on a unique pool size." << std::endl;
 
     // --- Test System Malloc ---
     {
         std::cout << "\nTesting System Malloc..." << std::endl;
+        PoolAllocator dummy_allocator; // Only needed for the worker signature
         std::vector<std::thread> threads;
         auto start_time = std::chrono::high_resolution_clock::now();
         for (unsigned int i = 0; i < num_threads; ++i) {
-            threads.emplace_back(system_malloc_worker, sizes_for_threads[i]);
+            // Assign each thread a unique size class
+            size_t size = PoolAllocator::POOL_SIZES[i % PoolAllocator::POOL_SIZES.size()];
+            threads.emplace_back(multi_thread_worker, &dummy_allocator, size, false, num_alloc_per_thread);
         }
         for (auto& t : threads) {
             t.join();
@@ -563,7 +425,9 @@ int main() {
         std::vector<std::thread> threads;
         auto start_time = std::chrono::high_resolution_clock::now();
         for (unsigned int i = 0; i < num_threads; ++i) {
-            threads.emplace_back(custom_allocator_worker, std::ref(my_allocator), sizes_for_threads[i]);
+            // Assign each thread a unique size class
+            size_t size = PoolAllocator::POOL_SIZES[i % PoolAllocator::POOL_SIZES.size()];
+            threads.emplace_back(multi_thread_worker, &my_allocator, size, true, num_alloc_per_thread);
         }
         for (auto& t : threads) {
             t.join();
@@ -572,100 +436,5 @@ int main() {
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
         std::cout << "Total time for custom allocator: " << duration.count() << " ms" << std::endl;
     }
-
     return 0;
 }
-
-
-// #include "PoolAllocator.hpp"
-// #include <iostream>
-// #include <vector>
-// #include <chrono>
-// #include <string>
-// #include <thread> // The C++ threading library
-// #include <random>
-
-// // --- BENCHMARK PARAMETERS ---
-// // Let's use fewer allocations, but run them across many threads.
-// constexpr size_t NUM_ALLOCATIONS_PER_THREAD = 1000000;
-// constexpr size_t MAX_RANDOM_SIZE = 64;
-
-// /**
-//  * @brief The work each thread will do for the system malloc test.
-//  */
-// void system_malloc_worker() {
-//     std::vector<void*> pointers;
-//     pointers.reserve(NUM_ALLOCATIONS_PER_THREAD);
-//     std::random_device rd;
-//     std::mt19937 gen(rd());
-//     std::uniform_int_distribution<> distrib(1, MAX_RANDOM_SIZE);
-
-//     for (size_t i = 0; i < NUM_ALLOCATIONS_PER_THREAD; ++i) {
-//         pointers.push_back(malloc(distrib(gen)));
-//     }
-//     for (void* p : pointers) {
-//         free(p);
-//     }
-// }
-
-// /**
-//  * @brief The work each thread will do for the custom allocator test.
-//  * @param allocator A reference to the global custom allocator.
-//  */
-// void custom_allocator_worker(PoolAllocator& allocator) {
-//     std::vector<void*> pointers;
-//     pointers.reserve(NUM_ALLOCATIONS_PER_THREAD);
-//     std::random_device rd;
-//     std::mt19937 gen(rd());
-//     std::uniform_int_distribution<> distrib(1, MAX_RANDOM_SIZE);
-
-//     for (size_t i = 0; i < NUM_ALLOCATIONS_PER_THREAD; ++i) {
-//         pointers.push_back(allocator.allocate(distrib(gen)));
-//     }
-//     for (void* p : pointers) {
-//         allocator.deallocate(p);
-//     }
-// }
-
-// int main() {
-//     // Determine how many threads to use (based on your CPU cores).
-//     const unsigned int num_threads = std::thread::hardware_concurrency();
-//     std::cout << "--- Starting Multi-threaded Benchmark ---" << std::endl;
-//     std::cout << "Using " << num_threads << " threads." << std::endl;
-//     std::cout << "Allocations per thread: " << NUM_ALLOCATIONS_PER_THREAD << std::endl;
-
-//     // --- Test System Malloc ---
-//     {
-//         std::cout << "\nTesting System Malloc..." << std::endl;
-//         std::vector<std::thread> threads;
-//         auto start_time = std::chrono::high_resolution_clock::now();
-//         for (unsigned int i = 0; i < num_threads; ++i) {
-//             threads.emplace_back(system_malloc_worker);
-//         }
-//         for (auto& t : threads) {
-//             t.join();
-//         }
-//         auto end_time = std::chrono::high_resolution_clock::now();
-//         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-//         std::cout << "Total time for system malloc: " << duration.count() << " ms" << std::endl;
-//     }
-
-//     // --- Test Custom Allocator ---
-//     {
-//         std::cout << "\nTesting Custom PoolAllocator..." << std::endl;
-//         PoolAllocator my_allocator; // Create the allocator
-//         std::vector<std::thread> threads;
-//         auto start_time = std::chrono::high_resolution_clock::now();
-//         for (unsigned int i = 0; i < num_threads; ++i) {
-//             threads.emplace_back(custom_allocator_worker, std::ref(my_allocator));
-//         }
-//         for (auto& t : threads) {
-//             t.join();
-//         }
-//         auto end_time = std::chrono::high_resolution_clock::now();
-//         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-//         std::cout << "Total time for custom allocator: " << duration.count() << " ms" << std::endl;
-//     }
-
-//     return 0;
-// }
