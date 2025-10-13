@@ -36,20 +36,20 @@ public:
             m_size_to_pool_index[size] = poolIndex;
         }
 
-        m_pools[0] = new MemoryPool<8>();
-        m_pools[1] = new MemoryPool<16>();
-        m_pools[2] = new MemoryPool<24>();
-        m_pools[3] = new MemoryPool<32>();
-        m_pools[4] = new MemoryPool<40>();
-        m_pools[5] = new MemoryPool<48>();
-        m_pools[6] = new MemoryPool<56>();
-        m_pools[7] = new MemoryPool<64>();
-        m_pools[8] = new MemoryPool<96>();
-        m_pools[9] = new MemoryPool<128>();
-        m_pools[10] = new MemoryPool<192>();
-        m_pools[11] = new MemoryPool<256>();
-        m_pools[12] = new MemoryPool<384>();
-        m_pools[13] = new MemoryPool<512>();
+        m_pools[0] = static_cast<IAllocator*>(new MemoryPool<8>());
+        m_pools[1] = static_cast<IAllocator*>(new MemoryPool<16>());
+        m_pools[2] = static_cast<IAllocator*>(new MemoryPool<24>());
+        m_pools[3] = static_cast<IAllocator*>(new MemoryPool<32>());
+        m_pools[4] = static_cast<IAllocator*>(new MemoryPool<40>());
+        m_pools[5] = static_cast<IAllocator*>(new MemoryPool<48>());
+        m_pools[6] = static_cast<IAllocator*>(new MemoryPool<56>());
+        m_pools[7] = static_cast<IAllocator*>(new MemoryPool<64>());
+        m_pools[8] = static_cast<IAllocator*>(new MemoryPool<96>());
+        m_pools[9] = static_cast<IAllocator*>(new MemoryPool<128>());
+        m_pools[10] = static_cast<IAllocator*>(new MemoryPool<192>());
+        m_pools[11] = static_cast<IAllocator*>(new MemoryPool<256>());
+        m_pools[12] = static_cast<IAllocator*>(new MemoryPool<384>());
+        m_pools[13] = static_cast<IAllocator*>(new MemoryPool<512>());
     
     }
     // ... Destructor, allocate, and deallocate functions will go here ...
@@ -146,4 +146,3 @@ PoolAllocator::~PoolAllocator() {
         delete pool;
     }
 }
-

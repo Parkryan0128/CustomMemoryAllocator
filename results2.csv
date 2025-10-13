@@ -1,0 +1,15 @@
+allocator_type,benchmark_type,num_allocations,time_ms
+system,random_size,10000,0
+custom,random_size,10000,0
+system,random_size,50000,4
+custom,random_size,50000,3
+system,random_size,100000,8
+custom,random_size,100000,7
+system,random_size,250000,20
+custom,random_size,250000,19
+system,random_size,500000,40
+custom,random_size,500000,38
+system,random_size,1000000,84
+custom,random_size,1000000,78
+system,random_size,2000000,165
+custom,random_size,2000000,154

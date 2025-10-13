@@ -1,0 +1,15 @@
+allocator_type,benchmark_type,num_allocations,time_ms
+system,single_size,10000,0
+custom,single_size,10000,0
+system,single_size,50000,2
+custom,single_size,50000,1
+system,single_size,100000,3
+custom,single_size,100000,2
+system,single_size,250000,8
+custom,single_size,250000,5
+system,single_size,500000,16
+custom,single_size,500000,11
+system,single_size,1000000,33
+custom,single_size,1000000,24
+system,single_size,2000000,69
+custom,single_size,2000000,51
