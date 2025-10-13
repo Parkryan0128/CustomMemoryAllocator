@@ -35,4 +35,11 @@ $(OBJ_DIR)/%.o: $(TEST_DIR)/%.cpp
 clean:
 	rm -rf $(OBJ_DIR) $(TARGET)
 
+plot: all
+	@echo "--- Step 1: Running C++ benchmark to generate CSV files... ---"
+	./$(TARGET) plot
+	@echo "\n--- Step 2: Running Python script to generate plots... ---"
+	python3 plot_results.py
+	@echo "\n--- All steps completed. Plots have been generated. ---"
+
 .PHONY: all clean
