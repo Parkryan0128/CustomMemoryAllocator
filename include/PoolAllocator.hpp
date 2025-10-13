@@ -3,15 +3,9 @@
 #include "MemoryPool.hpp"
 #include <array>
 #include <cstdint>
+#include <iostream>
 #include <mutex>
-#include <tuple>
 
-constexpr size_t CACHELINE_SIZE = 64; // Use a conservative 64-byte cache line size.
-
-struct alignas(CACHELINE_SIZE) PaddedMutex {
-    std::mutex m;
-    char padding[CACHELINE_SIZE - sizeof(std::mutex)];
-};
 
 struct ThreadCache {
     void* m_head = nullptr; // Head of this thread's private free list.
@@ -29,30 +23,36 @@ public:
         96, 128, 192, 256, 384, 512
     };
     PoolAllocator() {
+        // --- 1. Pre-calculate the size-to-pool lookup table ---
+        // This is a one-time cost at startup that makes every future
+        // allocate() call an O(1) operation.
         uint8_t poolIndex = 0;
         for (size_t size = 1; size <= POOL_SIZES.back(); ++size) {
+            // If the current size has exceeded the capacity of the current pool,
+            // we move to the next larger pool index.
             if (poolIndex < POOL_SIZES.size() - 1 && size > POOL_SIZES[poolIndex]) {
                 poolIndex++;
             }
             m_size_to_pool_index[size] = poolIndex;
         }
 
-        // m_pools[0] = new MemoryPool<8>();
-        // m_pools[1] = new MemoryPool<16>();
-        // m_pools[2] = new MemoryPool<24>();
-        // m_pools[3] = new MemoryPool<32>();
-        // m_pools[4] = new MemoryPool<40>();
-        // m_pools[5] = new MemoryPool<48>();
-        // m_pools[6] = new MemoryPool<56>();
-        // m_pools[7] = new MemoryPool<64>();
-        // m_pools[8] = new MemoryPool<96>();
-        // m_pools[9] = new MemoryPool<128>();
-        // m_pools[10] = new MemoryPool<192>();
-        // m_pools[11] = new MemoryPool<256>();
-        // m_pools[12] = new MemoryPool<384>();
-        // m_pools[13] = new MemoryPool<512>();
+        m_pools[0] = static_cast<IAllocator*>(new MemoryPool<8>());
+        m_pools[1] = static_cast<IAllocator*>(new MemoryPool<16>());
+        m_pools[2] = static_cast<IAllocator*>(new MemoryPool<24>());
+        m_pools[3] = static_cast<IAllocator*>(new MemoryPool<32>());
+        m_pools[4] = static_cast<IAllocator*>(new MemoryPool<40>());
+        m_pools[5] = static_cast<IAllocator*>(new MemoryPool<48>());
+        m_pools[6] = static_cast<IAllocator*>(new MemoryPool<56>());
+        m_pools[7] = static_cast<IAllocator*>(new MemoryPool<64>());
+        m_pools[8] = static_cast<IAllocator*>(new MemoryPool<96>());
+        m_pools[9] = static_cast<IAllocator*>(new MemoryPool<128>());
+        m_pools[10] = static_cast<IAllocator*>(new MemoryPool<192>());
+        m_pools[11] = static_cast<IAllocator*>(new MemoryPool<256>());
+        m_pools[12] = static_cast<IAllocator*>(new MemoryPool<384>());
+        m_pools[13] = static_cast<IAllocator*>(new MemoryPool<512>());
     
     }
+    // ... Destructor, allocate, and deallocate functions will go here ...
     ~PoolAllocator();
     void* allocate(size_t size);
     void deallocate(void* ptr);
@@ -62,20 +62,10 @@ private:
         uint8_t pool_index;   // Used when the block is allocated.
         Header* next_in_cache; // Used when the block is in a thread cache's free list.
     };
-    static constexpr size_t BATCH_SIZE = 64;
-
-    static constexpr size_t HIGH_WATER_MARK = 2 * BATCH_SIZE;
 
     void refill_cache(uint8_t poolIndex);
-    std::array<PaddedMutex, POOL_SIZES.size()> m_pool_mutexes;
-
-    // std::array<IAllocator*, POOL_SIZES.size()> m_pools{};
-    std::tuple<
-        MemoryPool<8>, MemoryPool<16>, MemoryPool<24>, MemoryPool<32>,
-        MemoryPool<40>, MemoryPool<48>, MemoryPool<56>, MemoryPool<64>,
-        MemoryPool<96>, MemoryPool<128>, MemoryPool<192>, MemoryPool<256>,
-        MemoryPool<384>, MemoryPool<512>
-    > m_pools;
+    std::array<std::mutex, POOL_SIZES.size()> m_pool_mutexes;
+    std::array<IAllocator*, POOL_SIZES.size()> m_pools{};
     std::array<uint8_t, POOL_SIZES.back() + 1> m_size_to_pool_index{};
 };
 
@@ -89,10 +79,7 @@ void* PoolAllocator::allocate(size_t size) {
     const uint8_t poolIndex = m_size_to_pool_index[required_size];
     ThreadCache& cache = g_thread_caches[poolIndex];
 
-    if (cache.m_head == nullptr) {
-        refill_cache(poolIndex);
-    }
-
+FastPath: // A label for our goto
     if (cache.m_head != nullptr) {
         Header* header = static_cast<Header*>(cache.m_head);
         cache.m_head = header->next_in_cache;
@@ -100,8 +87,16 @@ void* PoolAllocator::allocate(size_t size) {
         header->pool_index = poolIndex;
         return static_cast<void*>(header + 1);
     }
+
+    // Slow path: Refill the cache and try the fast path again.
+    refill_cache(poolIndex);
+
+    // If the refill added blocks, jump back to the fast path logic.
+    if (cache.m_head != nullptr) {
+        goto FastPath;
+    }
     
-    return nullptr;
+    return nullptr; // Refill failed.
 }
 
 void PoolAllocator::deallocate(void* ptr) {
@@ -111,78 +106,33 @@ void PoolAllocator::deallocate(void* ptr) {
     const uint8_t poolIndex = header->pool_index;
 
     if (poolIndex >= POOL_SIZES.size()) {
+        std::cerr << "ERROR: Invalid pool index!\n";
         return;
     }
 
     ThreadCache& cache = g_thread_caches[poolIndex];
     
+    // The memory where pool_index was stored can now be used for the 'next' pointer.
     header->next_in_cache = static_cast<Header*>(cache.m_head);
     cache.m_head = header;
     cache.m_count++;
-
-    if (cache.m_count > HIGH_WATER_MARK) {
-        std::lock_guard<std::mutex> lock(m_pool_mutexes[poolIndex].m);
-
-        Header* return_list_head = static_cast<Header*>(cache.m_head);
-        Header* keep_list_head = return_list_head;
-        for (size_t i = 0; i < BATCH_SIZE; ++i) {
-            keep_list_head = keep_list_head->next_in_cache;
-        }
-        cache.m_head = keep_list_head;
-        
-        Header* current = return_list_head;
-        while (current != keep_list_head) {
-            Header* next = current->next_in_cache;
-            switch (poolIndex) {
-                case 0:  std::get<0>(m_pools).deallocate(static_cast<void*>(current)); break;
-                case 1:  std::get<1>(m_pools).deallocate(static_cast<void*>(current)); break;
-                case 2:  std::get<2>(m_pools).deallocate(static_cast<void*>(current)); break;
-                case 3:  std::get<3>(m_pools).deallocate(static_cast<void*>(current)); break;
-                case 4:  std::get<4>(m_pools).deallocate(static_cast<void*>(current)); break;
-                case 5:  std::get<5>(m_pools).deallocate(static_cast<void*>(current)); break;
-                case 6:  std::get<6>(m_pools).deallocate(static_cast<void*>(current)); break;
-                case 7:  std::get<7>(m_pools).deallocate(static_cast<void*>(current)); break;
-                case 8:  std::get<8>(m_pools).deallocate(static_cast<void*>(current)); break;
-                case 9:  std::get<9>(m_pools).deallocate(static_cast<void*>(current)); break;
-                case 10:  std::get<10>(m_pools).deallocate(static_cast<void*>(current)); break;
-                case 11:  std::get<11>(m_pools).deallocate(static_cast<void*>(current)); break;
-                case 12:  std::get<12>(m_pools).deallocate(static_cast<void*>(current)); break;
-                case 13: std::get<13>(m_pools).deallocate(static_cast<void*>(current)); break;
-            }
-            current = next;
-        }
-
-        cache.m_count -= BATCH_SIZE;
-    }
 }
 
 void PoolAllocator::refill_cache(uint8_t poolIndex) {
-    std::lock_guard<std::mutex> lock(m_pool_mutexes[poolIndex].m);
+    // Lock only the mutex for the specific pool we need.
+    std::lock_guard<std::mutex> lock(m_pool_mutexes[poolIndex]);
+
     ThreadCache& cache = g_thread_caches[poolIndex];
     
-    for (size_t i = 0; i < BATCH_SIZE; ++i) {
-        void* block = nullptr;
-        switch (poolIndex) {
-            case 0:  block = std::get<0>(m_pools).allocate(); break;
-            case 1:  block = std::get<1>(m_pools).allocate(); break;
-            case 2:  block = std::get<2>(m_pools).allocate(); break;
-            case 3:  block = std::get<3>(m_pools).allocate(); break;
-            case 4:  block = std::get<4>(m_pools).allocate(); break;
-            case 5:  block = std::get<5>(m_pools).allocate(); break;
-            case 6:  block = std::get<6>(m_pools).allocate(); break;
-            case 7:  block = std::get<7>(m_pools).allocate(); break;
-            case 8:  block = std::get<8>(m_pools).allocate(); break;
-            case 9:  block = std::get<9>(m_pools).allocate(); break;
-            case 10:  block = std::get<10>(m_pools).allocate(); break;
-            case 11:  block = std::get<11>(m_pools).allocate(); break;
-            case 12:  block = std::get<12>(m_pools).allocate(); break;
-            case 13: block = std::get<13>(m_pools).allocate(); break;
-        }
+    // How many blocks to fetch.
+    const size_t batch_size = 20;
 
-        if (block == nullptr) {
-            break;
-        }
+    // Fetch a batch of blocks from the central pool.
+    for (size_t i = 0; i < batch_size; ++i) {
+        void* block = m_pools[poolIndex]->allocate();
+        if (block == nullptr) break;
         
+        // Push the new block onto the thread's cache.
         Header* header = static_cast<Header*>(block);
         header->next_in_cache = static_cast<Header*>(cache.m_head);
         cache.m_head = header;
@@ -190,10 +140,9 @@ void PoolAllocator::refill_cache(uint8_t poolIndex) {
     }
 }
 
-
 PoolAllocator::~PoolAllocator() {
-    // for (auto* pool : m_pools) {
-    //     delete pool;
-    // }
+    // std::cout << "Destroying PoolAllocator and freeing all pools." << std::endl;
+    for (auto* pool : m_pools) {
+        delete pool;
+    }
 }
-
