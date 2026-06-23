@@ -1,5 +1,6 @@
 # C++ Custom Memory Allocator
 
+[![CI](https://github.com/Parkryan0128/CustomMemoryAllocator/actions/workflows/ci.yml/badge.svg)](https://github.com/Parkryan0128/CustomMemoryAllocator/actions/workflows/ci.yml)
 [![Language](https://img.shields.io/badge/Language-C%2B%2B-blue.svg)]()
 
 A fixed-size block allocator written in C++. It serves one constant block size using an intrusive free list backed by OS memory pages, and includes a benchmark suite comparing it against `malloc`/`free`.
@@ -32,6 +33,7 @@ A fixed-size block allocator written in C++. It serves one constant block size u
 │   └── benchmark_main.cpp
 ├── Makefile
 ├── plot_results.py
+├── .github/workflows/ci.yml     # GitHub Actions CI
 └── README.md
 ```
 
@@ -63,6 +65,27 @@ This builds both binaries:
 ```bash
 make test
 ```
+
+Sanitizer builds (require Clang or GCC with sanitizer support):
+
+```bash
+make test-asan    # AddressSanitizer — memory errors, use-after-free
+make test-tsan    # ThreadSanitizer — data races
+make test-ubsan   # UndefinedBehaviorSanitizer
+```
+
+Or pass `SANITIZE=address|thread|undefined` directly: `make test SANITIZE=address`.
+
+### Continuous Integration
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request:
+
+| Job | Platform | What it checks |
+|-----|----------|----------------|
+| **test** | Ubuntu + macOS | Full 107-test suite (debug build) |
+| **asan** | Ubuntu + macOS | Tests under AddressSanitizer |
+| **tsan** | Ubuntu | Tests under ThreadSanitizer |
+| **ubsan** | Ubuntu | Tests under UndefinedBehaviorSanitizer |
 
 ### Run Benchmarks
 

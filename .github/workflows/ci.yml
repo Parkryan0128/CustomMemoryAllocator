@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run unit tests
+        run: make test
+
+  asan:
+    name: AddressSanitizer (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run tests under ASan
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+        run: make test-asan
+
+  tsan:
+    name: ThreadSanitizer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run tests under TSan
+        env:
+          TSAN_OPTIONS: abort_on_error=1
+        run: make test-tsan
+
+  ubsan:
+    name: UndefinedBehaviorSanitizer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run tests under UBSan
+        env:
+          UBSAN_OPTIONS: print_stacktrace=1:abort_on_error=1
+        run: make test-ubsan
