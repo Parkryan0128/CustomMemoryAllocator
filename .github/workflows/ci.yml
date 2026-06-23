@@ -43,13 +43,14 @@ jobs:
   tsan:
     name: ThreadSanitizer
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
       - name: Build and run tests under TSan
         env:
           TSAN_OPTIONS: abort_on_error=1
-        run: make test-tsan
+        run: stdbuf -oL make test-tsan
 
   ubsan:
     name: UndefinedBehaviorSanitizer

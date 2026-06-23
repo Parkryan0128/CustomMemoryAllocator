@@ -15,6 +15,8 @@ ifeq ($(SANITIZE),address)
   SANFLAGS = -fsanitize=address -fno-omit-frame-pointer
 else ifeq ($(SANITIZE),thread)
   SANFLAGS = -fsanitize=thread -fno-omit-frame-pointer
+  DBGFLAGS = -g -O1
+  CXXFLAGS += -DCMA_TSAN_BUILD
 else ifeq ($(SANITIZE),undefined)
   SANFLAGS = -fsanitize=undefined -fno-omit-frame-pointer
 else ifneq ($(SANITIZE),)

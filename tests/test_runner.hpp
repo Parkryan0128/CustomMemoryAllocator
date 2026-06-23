@@ -85,9 +85,11 @@ inline int run_all_tests() {
     int failures = 0;
 
     std::cout << "Running " << tests.size() << " tests...\n\n";
+    std::cout.flush();
 
     for (const TestCase& test : tests) {
         std::cout << "[ RUN      ] " << test.name << '\n';
+        std::cout.flush();
         try {
             test.fn();
             std::cout << "[       OK ] " << test.name << '\n';
@@ -99,6 +101,7 @@ inline int run_all_tests() {
             std::cout << "[  FAILED  ] " << test.name << " (unexpected exception: " << ex.what()
                       << ")\n";
         }
+        std::cout.flush();
     }
 
     std::cout << '\n';

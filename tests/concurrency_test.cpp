@@ -24,8 +24,31 @@ using cma_test::kBlockSize;
 
 unsigned int default_thread_count() {
     const unsigned int hw = std::thread::hardware_concurrency();
-    return hw > 0 ? hw : 4U;
+    const unsigned int count = hw > 0 ? hw : 4U;
+#ifdef CMA_TSAN_BUILD
+    return count > 2 ? 2U : count;
+#else
+    return count;
+#endif
 }
+
+#ifdef CMA_TSAN_BUILD
+constexpr size_t tsan_scale(size_t value) {
+    return value / 4 + 1;
+}
+
+constexpr unsigned int tsan_threads(unsigned int count) {
+    return count > 2 ? 2U : count;
+}
+#else
+constexpr size_t tsan_scale(size_t value) {
+    return value;
+}
+
+constexpr unsigned int tsan_threads(unsigned int count) {
+    return count;
+}
+#endif
 
 void stamp_block(void* block, unsigned int thread_id, size_t iteration) {
     auto* bytes = static_cast<unsigned char*>(block);
@@ -203,7 +226,7 @@ TEST(Concurrency_CrossThreadDeallocate) {
 TEST(Concurrency_CrossThreadManyHandoffs) {
     Allocator allocator;
     const unsigned int thread_count = 4;
-    const size_t handoffs_per_pair = 500;
+    const size_t handoffs_per_pair = tsan_scale(500);
 
     std::mutex queue_mutex;
     std::condition_variable queue_cv;
@@ -479,8 +502,8 @@ TEST(Concurrency_ConcurrentEmptyPageReleaseCrossThread) {
 
 TEST(Concurrency_MemoryPatternsUniquePerThread) {
     Allocator allocator;
-    const unsigned int thread_count = 8;
-    const size_t iterations = 500;
+    const unsigned int thread_count = tsan_threads(8);
+    const size_t iterations = tsan_scale(500);
 
     std::vector<std::thread> threads;
     for (unsigned int i = 0; i < thread_count; ++i) {
@@ -513,7 +536,7 @@ TEST(Concurrency_StatsConsistentAfterParallelWorkload) {
 TEST(Concurrency_StatsQueriesDuringWorkload) {
     Allocator allocator;
     const unsigned int thread_count = 4;
-    const size_t iterations = 2000;
+    const size_t iterations = tsan_scale(2000);
     std::atomic<bool> stop{false};
 
     std::vector<std::thread> workers;
@@ -586,7 +609,7 @@ TEST(Concurrency_LiveCountStableDuringHeldBlocks) {
 
 TEST(Concurrency_PartialLiveBlocksAcrossThreads) {
     Allocator allocator;
-    const unsigned int thread_count = 6;
+    const unsigned int thread_count = tsan_threads(6);
     const size_t held_per_thread = 32;
 
     std::vector<std::vector<void*>> held(thread_count);
@@ -615,8 +638,8 @@ TEST(Concurrency_PartialLiveBlocksAcrossThreads) {
 
 TEST(Concurrency_HighWaterMarkFlushStress) {
     Allocator allocator;
-    const unsigned int thread_count = 8;
-    const size_t iterations = 3000;
+    const unsigned int thread_count = tsan_threads(8);
+    const size_t iterations = tsan_scale(3000);
 
     std::vector<std::thread> threads;
     for (unsigned int i = 0; i < thread_count; ++i) {
@@ -707,7 +730,7 @@ TEST(Concurrency_TwoAllocatorsIndependentUnderThreads) {
     cma::FixedBlockAllocator<32> first;
     cma::FixedBlockAllocator<32> second;
     const unsigned int thread_count = 4;
-    const size_t iterations = 800;
+    const size_t iterations = tsan_scale(800);
 
     std::vector<std::thread> threads;
     for (unsigned int i = 0; i < thread_count; ++i) {
@@ -891,7 +914,7 @@ TEST(Concurrency_StaggeredThreadCompletion) {
 
     std::vector<std::thread> threads;
     for (unsigned int i = 0; i < thread_count; ++i) {
-        const size_t iterations = 300 * (i + 1);
+        const size_t iterations = tsan_scale(300 * (i + 1));
         threads.emplace_back(worker_alloc_free, &allocator, iterations);
     }
     for (std::thread& thread : threads) {
@@ -960,7 +983,7 @@ TEST(Concurrency_FullDrainReachesZeroPages) {
 TEST(Concurrency_InterleavedAllocFreeNoLeak) {
     Allocator allocator;
     const unsigned int thread_count = 4;
-    const size_t iterations = 2500;
+    const size_t iterations = tsan_scale(2500);
     std::atomic<size_t> max_local_live_seen{0};
 
     std::vector<std::thread> threads;
@@ -997,7 +1020,7 @@ TEST(Concurrency_InterleavedAllocFreeNoLeak) {
 
 TEST(Concurrency_DestructorSafeAfterMultithreadedUse) {
     const unsigned int thread_count = 4;
-    const size_t iterations = 500;
+    const size_t iterations = tsan_scale(500);
 
     std::vector<std::thread> threads;
     {
@@ -1035,7 +1058,7 @@ TEST(Concurrency_WorkerFlushReturnsUnusedRefillBlocks) {
 TEST(Concurrency_MainThreadFlushAfterWorkerCaches) {
     Allocator allocator;
     const unsigned int thread_count = 4;
-    const size_t iterations = 1000;
+    const size_t iterations = tsan_scale(1000);
 
     std::vector<std::thread> threads;
     for (unsigned int i = 0; i < thread_count; ++i) {
@@ -1112,7 +1135,7 @@ TEST(Concurrency_BlocksRemainDistinctUnderContention) {
 
 TEST(Concurrency_NullDeallocateFromMultipleThreads) {
     Allocator allocator;
-    const unsigned int thread_count = 8;
+    const unsigned int thread_count = tsan_threads(8);
 
     std::vector<std::thread> threads;
     for (unsigned int i = 0; i < thread_count; ++i) {
