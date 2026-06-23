@@ -1,9 +1,17 @@
-# Compiled files
+# Compiled artifacts
 *.o
+obj/
 *.out
 
-# Executable
+# Binaries
 allocator_test
+allocator_test-*
+unit_tests
+unit_tests-*
+
+# Benchmark outputs
+results.csv
+benchmark_*.png
 
 # OS files
 .DS_Store
