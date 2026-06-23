@@ -36,7 +36,8 @@ jobs:
 
       - name: Build and run tests under ASan
         env:
-          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          # Leak detection is supported on Linux ASan only, not on macOS.
+          ASAN_OPTIONS: ${{ matrix.os == 'ubuntu-latest' && 'detect_leaks=1:abort_on_error=1' || 'abort_on_error=1' }}
         run: make test-asan
 
   tsan:

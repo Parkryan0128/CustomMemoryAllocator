@@ -83,7 +83,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request:
 | Job | Platform | What it checks |
 |-----|----------|----------------|
 | **test** | Ubuntu + macOS | Full 107-test suite (debug build) |
-| **asan** | Ubuntu + macOS | Tests under AddressSanitizer |
+| **asan** | Ubuntu + macOS | Tests under AddressSanitizer (leak detection on Linux only) |
 | **tsan** | Ubuntu | Tests under ThreadSanitizer |
 | **ubsan** | Ubuntu | Tests under UndefinedBehaviorSanitizer |
 
