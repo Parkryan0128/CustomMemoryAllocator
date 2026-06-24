@@ -1,4 +1,5 @@
 #include "FixedBlockAllocator.hpp"
+#include "workload_common.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -44,6 +45,7 @@ inline unsigned long long read_block(void* block) {
 enum class Workload {
     Interleaved,
     Batch,
+    RandomMix,
 };
 
 enum class Threading {
@@ -66,8 +68,54 @@ unsigned int default_thread_count() {
     return hw > 0 ? hw : 4U;
 }
 
+constexpr Workload kAllWorkloads[] = {
+    Workload::Interleaved,
+    Workload::Batch,
+    Workload::RandomMix,
+};
+
+// Deterministic mix: ~50% alloc / ~50% free when live is non-empty; always alloc when empty.
+// Use xor'd hash bits for the decision — (salt & 1) correlates with op parity and collapses
+// to a 0/1 live toggle instead of a real mix.
 template <typename Alloc, typename Free>
-unsigned long long run_workload(Workload workload, size_t iterations, Alloc alloc, Free free_fn) {
+unsigned long long run_random_mix(size_t operations,
+                                  unsigned int seed,
+                                  Alloc alloc,
+                                  Free free_fn) {
+    std::vector<void*> live;
+    live.reserve(64);
+    unsigned long long checksum = 0;
+
+    for (size_t op = 0; op < operations; ++op) {
+        const size_t salt = workload::random_mix_salt(op, seed);
+        if (workload::random_mix_should_alloc(live.size(), salt)) {
+            void* block = alloc();
+            do_not_optimize(block);
+            touch_block(block, op);
+            live.push_back(block);
+        } else {
+            const size_t index = salt % live.size();
+            void* block = live[index];
+            checksum += read_block(block);
+            live[index] = live.back();
+            live.pop_back();
+            free_fn(block);
+        }
+    }
+
+    for (void* block : live) {
+        checksum += read_block(block);
+        free_fn(block);
+    }
+    return checksum;
+}
+
+template <typename Alloc, typename Free>
+unsigned long long run_workload(Workload workload,
+                                size_t iterations,
+                                unsigned int seed,
+                                Alloc alloc,
+                                Free free_fn) {
     unsigned long long checksum = 0;
 
     if (workload == Workload::Interleaved) {
@@ -79,6 +127,10 @@ unsigned long long run_workload(Workload workload, size_t iterations, Alloc allo
             free_fn(block);
         }
         return checksum;
+    }
+
+    if (workload == Workload::RandomMix) {
+        return run_random_mix(iterations, seed, alloc, free_fn);
     }
 
     std::vector<void*> blocks;
@@ -99,14 +151,14 @@ unsigned long long run_workload(Workload workload, size_t iterations, Alloc allo
 void run_single_custom(Workload workload, size_t iterations) {
     cma::FixedBlockAllocator<kBlockSize> allocator;
     const unsigned long long checksum = run_workload(
-        workload, iterations, [&]() { return allocator.allocate(); },
+        workload, iterations, 0U, [&]() { return allocator.allocate(); },
         [&](void* p) { allocator.deallocate(p); });
     g_sink.fetch_add(checksum, std::memory_order_relaxed);
 }
 
 void run_single_malloc(Workload workload, size_t iterations) {
     const unsigned long long checksum = run_workload(
-        workload, iterations, [&]() { return std::malloc(kBlockSize); },
+        workload, iterations, 0U, [&]() { return std::malloc(kBlockSize); },
         [&](void* p) { std::free(p); });
     g_sink.fetch_add(checksum, std::memory_order_relaxed);
 }
@@ -119,10 +171,10 @@ void run_multi_custom(Workload workload, size_t iterations_per_thread, unsigned 
     threads.reserve(thread_count);
 
     for (unsigned int t = 0; t < thread_count; ++t) {
-        threads.emplace_back([workload, iterations_per_thread]() {
+        threads.emplace_back([workload, iterations_per_thread, t]() {
             cma::FixedBlockAllocator<kBlockSize> allocator;
             const unsigned long long checksum = run_workload(
-                workload, iterations_per_thread, [&]() { return allocator.allocate(); },
+                workload, iterations_per_thread, t, [&]() { return allocator.allocate(); },
                 [&](void* p) { allocator.deallocate(p); });
             allocator.flush_local_thread_cache();
             g_sink.fetch_add(checksum, std::memory_order_relaxed);
@@ -139,9 +191,9 @@ void run_multi_malloc(Workload workload, size_t iterations_per_thread, unsigned 
     threads.reserve(thread_count);
 
     for (unsigned int t = 0; t < thread_count; ++t) {
-        threads.emplace_back([workload, iterations_per_thread]() {
+        threads.emplace_back([workload, iterations_per_thread, t]() {
             const unsigned long long checksum = run_workload(
-                workload, iterations_per_thread, [&]() { return std::malloc(kBlockSize); },
+                workload, iterations_per_thread, t, [&]() { return std::malloc(kBlockSize); },
                 [&](void* p) { std::free(p); });
             g_sink.fetch_add(checksum, std::memory_order_relaxed);
         });
@@ -192,7 +244,15 @@ long long stable_ms(bool use_custom,
 }
 
 const char* workload_name(Workload workload) {
-    return workload == Workload::Interleaved ? "interleaved" : "batch";
+    switch (workload) {
+    case Workload::Interleaved:
+        return "interleaved";
+    case Workload::Batch:
+        return "batch";
+    case Workload::RandomMix:
+        return "random_mix";
+    }
+    return "unknown";
 }
 
 const char* threading_name(Threading threading) {
@@ -222,7 +282,7 @@ void run_console_benchmark() {
     std::cout << "Single-thread (" << single_iterations << " operations)\n";
     std::cout << std::string(72, '-') << "\n";
 
-    for (Workload workload : {Workload::Interleaved, Workload::Batch}) {
+    for (Workload workload : kAllWorkloads) {
         const long long custom_ms =
             stable_ms(true, Threading::Single, workload, single_iterations, 1);
         const long long malloc_ms =
@@ -234,7 +294,7 @@ void run_console_benchmark() {
               << " total operations)\n";
     std::cout << std::string(72, '-') << "\n";
 
-    for (Workload workload : {Workload::Interleaved, Workload::Batch}) {
+    for (Workload workload : kAllWorkloads) {
         const long long custom_ms =
             stable_ms(true, Threading::Multi, workload, multi_iterations, thread_count);
         const long long malloc_ms =
@@ -259,7 +319,7 @@ void generate_plot_data() {
 
     for (const size_t count : allocation_counts) {
         for (Threading threading : {Threading::Single, Threading::Multi}) {
-            for (Workload workload : {Workload::Interleaved, Workload::Batch}) {
+            for (Workload workload : kAllWorkloads) {
                 const std::string bench_type = benchmark_type(threading, workload);
                 const unsigned int threads = threading == Threading::Multi ? thread_count : 1U;
 
@@ -291,12 +351,13 @@ void print_usage(const char* prog_name) {
     std::cerr << "Usage: " << prog_name << " [command]\n\n"
               << "Commands:\n"
               << "  benchmark   Compare custom vs malloc (single and multi-thread).\n"
-              << "  plot        Generate results.csv for plotting.\n";
+              << "  plot        Generate results.csv for plotting.\n"
+              << "  trace       Sample allocator stats to JSON (see: trace --help via missing args).\n";
 }
 
 } // namespace
 
-int main(int argc, char* argv[]) {
+int run_benchmark_cli(int argc, char* argv[]) {
     if (argc != 2) {
         print_usage(argv[0]);
         return 1;
@@ -316,3 +377,9 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
+
+#ifndef CMA_NO_MAIN
+int main(int argc, char* argv[]) {
+    return run_benchmark_cli(argc, argv);
+}
+#endif

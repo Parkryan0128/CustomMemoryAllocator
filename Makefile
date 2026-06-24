@@ -32,6 +32,8 @@ OBJ_DIR = obj$(SAN_SUFFIX)
 
 PLATFORM_MEMORY_OBJ = $(OBJ_DIR)/PlatformMemory.o
 BENCHMARK_OBJ = $(OBJ_DIR)/benchmark_main.o
+LIFECYCLE_TRACE_OBJ = $(OBJ_DIR)/lifecycle_trace.o
+ALLOCATOR_CLI_OBJ = $(OBJ_DIR)/allocator_cli_main.o
 UNIT_TEST_OBJS = $(OBJ_DIR)/test_main.o \
                  $(OBJ_DIR)/fixed_block_allocator_test.o \
                  $(OBJ_DIR)/platform_memory_test.o \
@@ -41,7 +43,7 @@ UNIT_TEST_OBJS = $(OBJ_DIR)/test_main.o \
 BENCHMARK_TARGET = allocator_test$(SAN_SUFFIX)
 UNIT_TEST_TARGET = unit_tests$(SAN_SUFFIX)
 
-.PHONY: all test test-asan test-tsan test-ubsan benchmark clean plot
+.PHONY: all test test-asan test-tsan test-ubsan benchmark dashboard lifecycle clean plot
 
 all: $(BENCHMARK_TARGET) $(UNIT_TEST_TARGET)
 
@@ -60,9 +62,26 @@ test-ubsan:
 benchmark: $(BENCHMARK_TARGET)
 	./$(BENCHMARK_TARGET) benchmark
 
+dashboard: $(BENCHMARK_TARGET)
+	@mkdir -p dashboard/data
+	@echo "--- Step 1: Benchmark CSV ---"
+	./$(BENCHMARK_TARGET) plot
+	@cp results.csv dashboard/data/results.csv
+	@echo "\n--- Step 2: Lifecycle traces ---"
+	./$(BENCHMARK_TARGET) trace --workload interleaved --ops 100000 --sample 2000 --out dashboard/data/lifecycle_trace_interleaved.json
+	./$(BENCHMARK_TARGET) trace --workload batch --ops 50000 --sample 1000 --out dashboard/data/lifecycle_trace_batch.json
+	@echo "\n--- Step 3: HTML dashboard ---"
+	python3 dashboard/generate.py
+	@echo "\nOpen index.html in a browser."
+
+lifecycle: dashboard
+	@echo "Note: use 'make dashboard' (lifecycle is an alias)."
+
 $(BENCHMARK_TARGET): CXXFLAGS += $(RELFLAGS)
-$(BENCHMARK_TARGET): $(PLATFORM_MEMORY_OBJ) $(BENCHMARK_OBJ)
+$(BENCHMARK_TARGET): $(PLATFORM_MEMORY_OBJ) $(BENCHMARK_OBJ) $(LIFECYCLE_TRACE_OBJ) $(ALLOCATOR_CLI_OBJ)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $^
+
+$(OBJ_DIR)/benchmark_main.o: CXXFLAGS += -DCMA_NO_MAIN
 
 $(UNIT_TEST_TARGET): CXXFLAGS += $(DBGFLAGS)
 $(UNIT_TEST_TARGET): $(PLATFORM_MEMORY_OBJ) $(UNIT_TEST_OBJS)
@@ -83,8 +102,10 @@ clean:
 		unit_tests unit_tests-address unit_tests-thread unit_tests-undefined
 
 plot: allocator_test
+	@mkdir -p dashboard/data
 	@echo "--- Step 1: Running C++ benchmark to generate CSV files... ---"
 	./allocator_test plot
+	@cp results.csv dashboard/data/results.csv
 	@echo "\n--- Step 2: Running Python script to generate plots... ---"
-	python3 plot_results.py
-	@echo "\n--- All steps completed. Plots have been generated. ---"
+	python3 dashboard/plot_results.py
+	@echo "\n--- All steps completed. Plots are in dashboard/data/. ---"
