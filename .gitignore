@@ -11,7 +11,16 @@ unit_tests-*
 
 # Benchmark outputs
 results.csv
-benchmark_*.png
+
+# Dashboard (generated)
+index.html
+dashboard/data/
+lifecycle_trace.json
+lifecycle_trace_*.json
+
+# Python
+__pycache__/
+*.pyc
 
 # OS files
 .DS_Store

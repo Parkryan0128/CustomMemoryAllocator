@@ -1,6 +1,7 @@
 #include "FixedBlockAllocator.hpp"
 #include "test_helpers.hpp"
 #include "test_runner.hpp"
+#include "workload_common.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -801,8 +802,8 @@ TEST(Concurrency_RandomMixAllocFree) {
             std::vector<void*> live;
             live.reserve(64);
             for (size_t op = 0; op < operations; ++op) {
-                const size_t salt = (i + 1) * 1315423911U + op * 2654435761U;
-                if (live.empty() || (salt % 3 != 2)) {
+                const size_t salt = workload::random_mix_salt(op, i);
+                if (workload::random_mix_should_alloc(live.size(), salt)) {
                     void* block = allocator.allocate();
                     EXPECT_NOT_NULL(block);
                     live.push_back(block);

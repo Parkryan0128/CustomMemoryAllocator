@@ -25,14 +25,21 @@ A fixed-size block allocator written in C++. It serves one constant block size u
 ├── tests/
 │   ├── test_runner.hpp            # Lightweight test harness
 │   ├── test_helpers.hpp           # Shared helpers, barriers, stat checks
+│   ├── workload_common.hpp        # Shared random-mix workload helpers
 │   ├── fixed_block_allocator_test.cpp
 │   ├── platform_memory_test.cpp
 │   ├── integration_test.cpp
 │   ├── concurrency_test.cpp       # Multithreaded stress tests
 │   ├── test_main.cpp
-│   └── benchmark_main.cpp
+│   ├── benchmark_main.cpp
+│   ├── lifecycle_trace.cpp/hpp    # Lifecycle trace for dashboard
+│   └── allocator_cli_main.cpp     # CLI: benchmark, plot, trace
+├── dashboard/
+│   ├── load_data.py
+│   ├── generate.py              # unified index.html
+│   ├── plot_results.py          # legacy matplotlib PNG charts
+│   └── data/                    # generated CSV, traces, PNGs (gitignored)
 ├── Makefile
-├── plot_results.py
 ├── .github/workflows/ci.yml     # GitHub Actions CI
 └── README.md
 ```
@@ -58,7 +65,7 @@ This builds both binaries:
 | Binary | Purpose |
 |--------|---------|
 | `unit_tests` | Full test suite (107 tests) |
-| `allocator_test` | Benchmark CLI (`-O2` release build) |
+| `allocator_test` | Benchmark / plot / trace CLI (`-O2` release build) |
 
 ### Run Unit Tests
 
@@ -97,11 +104,31 @@ make benchmark
 ./allocator_test benchmark
 ```
 
-Generate CSV data and plots:
+Generate CSV data and legacy matplotlib plots:
 
 ```bash
-./allocator_test plot
 make plot
+# or: ./allocator_test plot && python3 dashboard/plot_results.py
+```
+
+### Interactive dashboard
+
+Benchmark charts and lifecycle traces in one page (`index.html`):
+
+```bash
+make dashboard
+# open index.html
+```
+
+Source lives under `dashboard/` (`load_data.py`, `generate.py`); generated data goes in
+`dashboard/data/` (gitignored).
+
+Lifecycle traces can also be run manually:
+
+```bash
+./allocator_test trace --workload interleaved --ops 100000 --sample 2000 \
+  --out dashboard/data/lifecycle_trace_interleaved.json
+python3 dashboard/generate.py
 ```
 
 ### Clean
@@ -150,25 +177,25 @@ Allocation takes a recycled block from the thread cache, or carves from its bump
 `./allocator_test benchmark` compares the allocator against the system `malloc`/`free`
 for 32-byte blocks across two axes:
 
-* **Threading:** single-thread vs. single-thread, and multi-thread vs. multi-thread
-  (one private allocator per thread — the idiomatic way to use a fixed-block pool).
-* **Workload:** *interleaved* (allocate then immediately free — the rapid object-pool
-  churn a pool allocator targets) and *batch* (allocate many, hold, then free them all).
+* **Threading:** single-thread and multi-thread (one private allocator per thread in the
+  multi case — the idiomatic way to use a fixed-block pool).
+* **Workload:** *interleaved* (allocate then immediately free), *batch* (allocate many,
+  hold, then free them all), and *random_mix* (pseudo-random alloc/free with a live set).
 
 Each measurement defeats dead-code elimination (every block is written through an
 optimization barrier so `malloc` cannot be elided), warms up once, and reports the
-median of several runs. Representative results (Apple Silicon, 8 threads, 5M ops):
+median of several runs. The console prints `ratio = custom / malloc` (values below 1 mean
+the custom allocator is faster). Representative results (Apple Silicon, 8 threads, 5M ops):
 
-| Workload | Custom | System malloc | Speedup |
-|----------|-------:|--------------:|--------:|
-| single, interleaved | 29 ms | 99 ms | **3.4×** |
-| single, batch | 93 ms | 106 ms | **1.1×** |
-| multi, interleaved | 6 ms | 50 ms | **8.3×** |
-| multi, batch | 31 ms | 27 ms | 0.9× |
+| Scenario | Custom (ms) | System malloc (ms) | Ratio (custom/malloc) |
+|----------|------------:|-------------------:|----------------------:|
+| single, interleaved | 29 | 99 | 0.29 |
+| single, batch | 93 | 106 | 0.88 |
+| multi, interleaved | 6 | 50 | 0.12 |
+| multi, batch | 31 | 27 | 1.15 |
 
-The allocator wins decisively on the allocate/free churn it is designed for, on both
-single- and multi-threaded workloads. Bulk *allocate-and-hold* (the `batch` case) is
-bandwidth- and page-fault-bound, where the general-purpose `malloc` is comparable.
+Run `make benchmark` for all six scenarios (including random_mix). The interactive
+dashboard (`make dashboard`) charts the full CSV.
 
-Run `make plot` to regenerate `results.csv` and the `benchmark_*.png` charts (requires
-Python 3 with `pandas`, `seaborn`, and `matplotlib`).
+Run `make plot` to regenerate `results.csv` and `benchmark_*.png` charts in
+`dashboard/data/` (requires Python 3 with `pandas`, `seaborn`, and `matplotlib`).
