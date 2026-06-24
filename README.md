@@ -122,9 +122,15 @@ make dashboard
 # open index.html
 ```
 
-**Live site:** after enabling GitHub Pages (Settings → Pages → Build and deployment → **GitHub Actions**), pushes to `main` deploy via `.github/workflows/pages.yml` to:
+**Live site:** https://parkryan0128.github.io/CustomMemoryAllocator/
 
-https://parkryan0128.github.io/CustomMemoryAllocator/
+**One-time setup** (required — the workflow fails with `Get Pages site failed` until this is done):
+
+1. Open **Settings → Pages** on GitHub
+2. Under **Build and deployment**, set **Source** to **GitHub Actions**
+3. Re-run the **Deploy dashboard to GitHub Pages** workflow (Actions tab → workflow → **Run workflow**)
+
+Pushes to `main` then deploy automatically via `.github/workflows/pages.yml`.
 
 Source lives under `dashboard/` (`load_data.py`, `generate.py`); generated data goes in
 `dashboard/data/` (gitignored).

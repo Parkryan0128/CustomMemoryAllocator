@@ -1,5 +1,8 @@
 name: Deploy dashboard to GitHub Pages
 
+# One-time repo setup (required before this workflow can succeed):
+# Settings → Pages → Build and deployment → Source: GitHub Actions
+
 on:
   push:
     branches: [main]
@@ -34,13 +37,13 @@ jobs:
           touch _site/.nojekyll
 
       - name: Configure GitHub Pages
-        uses: actions/configure-pages@v4
+        uses: actions/configure-pages@v6
 
       - name: Upload site
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
