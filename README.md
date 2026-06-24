@@ -38,9 +38,12 @@ A fixed-size block allocator written in C++. It serves one constant block size u
 │   ├── load_data.py
 │   ├── generate.py              # unified index.html
 │   ├── plot_results.py          # legacy matplotlib PNG charts
+│   ├── requirements.txt         # optional Python deps for make plot
 │   └── data/                    # generated CSV, traces, PNGs (gitignored)
+├── .github/workflows/
+│   ├── ci.yml
+│   └── pages.yml                # deploy dashboard to GitHub Pages
 ├── Makefile
-├── .github/workflows/ci.yml     # GitHub Actions CI
 └── README.md
 ```
 
@@ -52,7 +55,7 @@ All production code lives in the `cma` namespace (`Custom Memory Allocator`).
 
 * C++17 compiler (GCC, Clang, or MSVC)
 * `make`
-* Python 3 with `pandas`, `seaborn`, and `matplotlib` (for plotting)
+* Python 3 (stdlib only for `make dashboard`; install `dashboard/requirements.txt` for `make plot`)
 
 ### Build
 
@@ -64,7 +67,7 @@ This builds both binaries:
 
 | Binary | Purpose |
 |--------|---------|
-| `unit_tests` | Full test suite (107 tests) |
+| `unit_tests` | Full test suite (95 tests) |
 | `allocator_test` | Benchmark / plot / trace CLI (`-O2` release build) |
 
 ### Run Unit Tests
@@ -89,7 +92,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request:
 
 | Job | Platform | What it checks |
 |-----|----------|----------------|
-| **test** | Ubuntu + macOS | Full 107-test suite (debug build) |
+| **test** | Ubuntu + macOS | Full 95-test suite (debug build) |
 | **asan** | Ubuntu + macOS | Tests under AddressSanitizer (leak detection on Linux only) |
 | **tsan** | Ubuntu | Tests under ThreadSanitizer (scaled-down concurrency workload; may take several minutes) |
 | **ubsan** | Ubuntu | Tests under UndefinedBehaviorSanitizer |
@@ -104,11 +107,10 @@ make benchmark
 ./allocator_test benchmark
 ```
 
-Generate CSV data and legacy matplotlib plots:
+Generate legacy matplotlib plots (requires `pip install -r dashboard/requirements.txt`):
 
 ```bash
 make plot
-# or: ./allocator_test plot && python3 dashboard/plot_results.py
 ```
 
 ### Interactive dashboard
@@ -119,6 +121,10 @@ Benchmark charts and lifecycle traces in one page (`index.html`):
 make dashboard
 # open index.html
 ```
+
+**Live site:** after enabling GitHub Pages (Settings → Pages → Build and deployment → **GitHub Actions**), pushes to `main` deploy via `.github/workflows/pages.yml` to:
+
+https://parkryan0128.github.io/CustomMemoryAllocator/
 
 Source lives under `dashboard/` (`load_data.py`, `generate.py`); generated data goes in
 `dashboard/data/` (gitignored).
@@ -197,5 +203,5 @@ the custom allocator is faster). Representative results (Apple Silicon, 8 thread
 Run `make benchmark` for all six scenarios (including random_mix). The interactive
 dashboard (`make dashboard`) charts the full CSV.
 
-Run `make plot` to regenerate `results.csv` and `benchmark_*.png` charts in
-`dashboard/data/` (requires Python 3 with `pandas`, `seaborn`, and `matplotlib`).
+Run `make plot` to regenerate `dashboard/data/results.csv` and `benchmark_*.png` charts
+(install deps with `pip install -r dashboard/requirements.txt`).

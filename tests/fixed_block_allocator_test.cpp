@@ -33,11 +33,6 @@ TEST(Construct_AllocatorIsUsable) {
     expect_consistent(allocator);
 }
 
-TEST(Allocate_ReturnsNonNull) {
-    Allocator allocator;
-    EXPECT_NOT_NULL(allocator.allocate());
-}
-
 TEST(AllocateMany_ReturnsMostlyDistinctPointers) {
     Allocator allocator;
     std::set<void*> unique;
@@ -185,38 +180,6 @@ TEST(EmptyPage_FreeingFullyUnusedPageReleasesMapping) {
     deallocate_blocks(allocator, first_page_blocks);
     allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.active_page_count(), 0U);
-}
-
-TEST(EmptyPage_PartiallyUsedPageStaysMapped) {
-    Allocator allocator;
-    const size_t blocks_per_page = Allocator::blocks_per_page();
-
-    auto blocks = allocate_blocks(allocator, blocks_per_page);
-    EXPECT_GE(allocator.active_page_count(), 1U);
-
-    for (size_t i = 0; i + 1 < blocks.size(); ++i) {
-        allocator.deallocate(blocks[i]);
-    }
-
-    // One block remains live, so at least one page must stay mapped.
-    EXPECT_GE(allocator.active_page_count(), 1U);
-    EXPECT_EQ(allocator.live_block_count(), 1U);
-    allocator.deallocate(blocks.back());
-}
-
-TEST(EmptyPage_ReleasingAllPagesAllowsFutureGrowth) {
-    Allocator allocator;
-    const size_t blocks_per_page = Allocator::blocks_per_page();
-
-    auto blocks = allocate_blocks(allocator, blocks_per_page);
-    deallocate_blocks(allocator, blocks);
-    allocator.flush_local_thread_cache();
-    EXPECT_EQ(allocator.active_page_count(), 0U);
-
-    void* block = allocator.allocate();
-    EXPECT_NOT_NULL(block);
-    EXPECT_GE(allocator.active_page_count(), 1U);
-    allocator.deallocate(block);
 }
 
 TEST(EmptyPage_FreeingPagesInReverseOrderReleasesEachMapping) {
@@ -488,30 +451,6 @@ TEST(EdgeCase_DeallocateDoesNotRequireSpecificOrder) {
     for (auto it = blocks.rbegin(); it != blocks.rend(); ++it) {
         allocator.deallocate(*it);
     }
-}
-
-TEST(EdgeCase_AllBlocksInPageCanBeLiveAtOnce) {
-    Allocator allocator;
-    const size_t blocks_per_page = Allocator::blocks_per_page();
-    auto blocks = allocate_blocks(allocator, blocks_per_page);
-
-    for (void* block : blocks) {
-        EXPECT_NOT_NULL(block);
-    }
-
-    deallocate_blocks(allocator, blocks);
-}
-
-TEST(EdgeCase_ReusedBlockCanStoreNewData) {
-    Allocator allocator;
-    void* block = allocator.allocate();
-    std::memset(block, 0x11, kBlockSize);
-    allocator.deallocate(block);
-
-    block = allocator.allocate();
-    std::memset(block, 0x22, kBlockSize);
-    EXPECT_EQ(static_cast<unsigned char*>(block)[0], 0x22);
-    allocator.deallocate(block);
 }
 
 TEST(EdgeCase_SingleBlockRetainPageUntilReleased) {

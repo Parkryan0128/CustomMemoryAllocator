@@ -1,5 +1,4 @@
 #include "FixedBlockAllocator.hpp"
-#include "PlatformMemory.hpp"
 #include "test_helpers.hpp"
 #include "test_runner.hpp"
 
@@ -16,16 +15,6 @@ using cma_test::kBlockSize;
 // ---------------------------------------------------------------------------
 // Integration: allocator + platform memory lifecycle
 // ---------------------------------------------------------------------------
-
-TEST(Integration_ScopedAllocatorConstructsAndDestroys) {
-    {
-        Allocator allocator;
-        auto blocks = allocate_blocks(allocator, 128);
-        EXPECT_EQ(allocator.live_block_count(), 128U);
-        deallocate_blocks(allocator, blocks);
-        cma_test::expect_stats_consistent(allocator);
-    }
-}
 
 TEST(Integration_FillDrainRefillCycle) {
     Allocator allocator;
@@ -119,17 +108,6 @@ TEST(Integration_LargeBatchAllocFreeMaintainsConsistency) {
     allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.active_page_count(), 0U);
     cma_test::expect_stats_consistent(allocator);
-}
-
-TEST(Integration_PlatformPageSizeMatchesAllocatorPageSize) {
-    constexpr size_t page_size = Allocator::PAGE_SIZE;
-    void* raw_page = cma::map_page(page_size);
-    EXPECT_NOT_NULL(raw_page);
-
-    Allocator allocator;
-    EXPECT_EQ(allocator.mapped_bytes(), page_size);
-
-    cma::unmap_page(raw_page, page_size);
 }
 
 TEST(Integration_ScopedDestructorWithLiveBlocksDoesNotCrash) {

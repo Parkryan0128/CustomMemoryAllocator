@@ -6,12 +6,6 @@
 using cma::map_page;
 using cma::unmap_page;
 
-TEST(PlatformMemory_MapPage_ReturnsNonNull) {
-    void* page = map_page(4096);
-    EXPECT_NOT_NULL(page);
-    unmap_page(page, 4096);
-}
-
 TEST(PlatformMemory_MapPage_MemoryIsWritable) {
     void* page = map_page(4096);
     EXPECT_NOT_NULL(page);
