@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -15,6 +16,7 @@
 namespace {
 
 constexpr size_t kBlockSize = 32;
+constexpr const char* kPlotCsvPath = "dashboard/data/results.csv";
 
 // Sink used to defeat dead-code elimination: without consuming the allocated
 // memory the optimizer is free to delete an alloc/free pair entirely (which
@@ -312,9 +314,10 @@ void generate_plot_data() {
     const unsigned int thread_count = default_thread_count();
     const int num_runs_per_test = 3;
 
-    std::cout << "--- Generating results.csv ---\n";
+    std::cout << "--- Generating " << kPlotCsvPath << " ---\n";
 
-    std::ofstream file("results.csv");
+    std::filesystem::create_directories("dashboard/data");
+    std::ofstream file(kPlotCsvPath);
     file << "allocator_type,benchmark_type,num_allocations,time_ms\n";
 
     for (const size_t count : allocation_counts) {
@@ -351,7 +354,7 @@ void print_usage(const char* prog_name) {
     std::cerr << "Usage: " << prog_name << " [command]\n\n"
               << "Commands:\n"
               << "  benchmark   Compare custom vs malloc (single and multi-thread).\n"
-              << "  plot        Generate results.csv for plotting.\n"
+              << "  plot        Generate dashboard/data/results.csv for plotting.\n"
               << "  trace       Sample allocator stats to JSON (see: trace --help via missing args).\n";
 }
 

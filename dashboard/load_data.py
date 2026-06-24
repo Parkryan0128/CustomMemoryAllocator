@@ -38,15 +38,11 @@ LIFECYCLE_LABELS = {
 
 
 def _csv_candidates() -> list[Path]:
-    return [DATA_DIR / "results.csv", ROOT / "results.csv"]
+    return [DATA_DIR / "results.csv"]
 
 
 def _trace_path(workload: str) -> list[Path]:
-    return [
-        DATA_DIR / f"lifecycle_trace_{workload}.json",
-        ROOT / f"lifecycle_trace_{workload}.json",
-        ROOT / "lifecycle_trace.json",
-    ]
+    return [DATA_DIR / f"lifecycle_trace_{workload}.json"]
 
 
 def load_benchmark_rows() -> list[dict]:
@@ -58,7 +54,7 @@ def load_benchmark_rows() -> list[dict]:
 
     if csv_path is None:
         print(
-            "Error: results.csv not found. Run ./allocator_test plot or make dashboard.",
+            f"Error: {DATA_DIR / 'results.csv'} not found. Run make dashboard or ./allocator_test plot.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -101,11 +97,6 @@ def load_lifecycle_traces() -> dict[str, dict]:
                 data = _load_trace_file(path)
             except ValueError:
                 continue
-            if path.name == "lifecycle_trace.json":
-                meta_workload = data["meta"].get("workload", workload)
-                if meta_workload in LIFECYCLE_ORDER:
-                    traces[meta_workload] = data
-                break
             traces[workload] = data
             break
 

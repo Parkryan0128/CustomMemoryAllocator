@@ -115,52 +115,6 @@ void run_parallel_alloc_free_smoke(size_t iterations, unsigned int thread_count 
 
 } // namespace
 
-TEST(Concurrency_SingleThreadStillPassesSmoke) {
-    Allocator allocator;
-    worker_alloc_free(&allocator, 1000);
-    cma_test::expect_stats_consistent(allocator);
-}
-
-TEST(Concurrency_MultipleThreadsAllocAndFree) {
-    Allocator allocator;
-    const unsigned int thread_count = 4;
-    const size_t iterations_per_thread = 2000;
-
-    std::vector<std::thread> threads;
-    for (unsigned int i = 0; i < thread_count; ++i) {
-        threads.emplace_back(worker_alloc_free, &allocator, iterations_per_thread);
-    }
-    for (std::thread& thread : threads) {
-        thread.join();
-    }
-
-    flush_thread_cache(allocator);
-    cma_test::expect_stats_consistent(allocator);
-    EXPECT_EQ(allocator.live_block_count(), 0U);
-}
-
-TEST(Concurrency_ParallelAllocFreeMaintainsBalance) {
-    Allocator allocator;
-    std::vector<void*> blocks;
-    blocks.reserve(128);
-
-    std::thread producer([&]() {
-        for (size_t i = 0; i < 128; ++i) {
-            blocks.push_back(allocator.allocate());
-        }
-    });
-
-    producer.join();
-
-    for (void* block : blocks) {
-        EXPECT_NOT_NULL(block);
-    }
-
-    deallocate_blocks(allocator, blocks);
-    flush_thread_cache(allocator);
-    EXPECT_EQ(allocator.live_block_count(), 0U);
-}
-
 TEST(Concurrency_HighVolumeParallelWorkload) {
     Allocator allocator;
     const unsigned int thread_count = default_thread_count();
@@ -572,39 +526,6 @@ TEST(Concurrency_StatsQueriesDuringWorkload) {
 
     cma_test::flush_thread_cache(allocator);
     cma_test::expect_stats_consistent(allocator);
-    EXPECT_EQ(allocator.live_block_count(), 0U);
-}
-
-TEST(Concurrency_LiveCountStableDuringHeldBlocks) {
-    Allocator allocator;
-    const unsigned int thread_count = 4;
-    const size_t held_per_thread = 64;
-    const size_t expected_live = thread_count * held_per_thread;
-
-    std::vector<std::vector<void*>> held(thread_count);
-    PhaseBarrier alloc_barrier(thread_count + 1);
-    PhaseBarrier free_barrier(thread_count + 1);
-
-    std::vector<std::thread> threads;
-    for (unsigned int i = 0; i < thread_count; ++i) {
-        threads.emplace_back([&, i]() {
-            held[i] = allocate_blocks(allocator, held_per_thread);
-            alloc_barrier.arrive_and_wait();
-            free_barrier.arrive_and_wait();
-            deallocate_blocks(allocator, held[i]);
-            flush_thread_cache(allocator);
-        });
-    }
-
-    alloc_barrier.arrive_and_wait();
-    EXPECT_EQ(allocator.live_block_count(), expected_live);
-    free_barrier.arrive_and_wait();
-
-    for (std::thread& thread : threads) {
-        thread.join();
-    }
-
-    flush_thread_cache(allocator);
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 

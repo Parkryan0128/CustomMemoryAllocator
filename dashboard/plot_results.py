@@ -18,7 +18,7 @@ def resolve_csv_path() -> Path:
         if candidate.exists():
             return candidate
     print(
-        "Error: results.csv not found. Run ./allocator_test plot or make plot.",
+        "Error: dashboard/data/results.csv not found. Run make plot or ./allocator_test plot.",
         file=sys.stderr,
     )
     sys.exit(1)

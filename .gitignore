@@ -9,14 +9,15 @@ allocator_test-*
 unit_tests
 unit_tests-*
 
-# Benchmark outputs
+# Benchmark outputs (legacy root path)
 results.csv
 
 # Dashboard (generated)
 index.html
 dashboard/data/
-lifecycle_trace.json
-lifecycle_trace_*.json
+
+# Editor
+.vscode/
 
 # Python
 __pycache__/

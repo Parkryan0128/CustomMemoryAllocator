@@ -43,7 +43,7 @@ UNIT_TEST_OBJS = $(OBJ_DIR)/test_main.o \
 BENCHMARK_TARGET = allocator_test$(SAN_SUFFIX)
 UNIT_TEST_TARGET = unit_tests$(SAN_SUFFIX)
 
-.PHONY: all test test-asan test-tsan test-ubsan benchmark dashboard lifecycle clean plot
+.PHONY: all test test-asan test-tsan test-ubsan benchmark dashboard clean plot
 
 all: $(BENCHMARK_TARGET) $(UNIT_TEST_TARGET)
 
@@ -66,16 +66,12 @@ dashboard: $(BENCHMARK_TARGET)
 	@mkdir -p dashboard/data
 	@echo "--- Step 1: Benchmark CSV ---"
 	./$(BENCHMARK_TARGET) plot
-	@cp results.csv dashboard/data/results.csv
 	@echo "\n--- Step 2: Lifecycle traces ---"
 	./$(BENCHMARK_TARGET) trace --workload interleaved --ops 100000 --sample 2000 --out dashboard/data/lifecycle_trace_interleaved.json
 	./$(BENCHMARK_TARGET) trace --workload batch --ops 50000 --sample 1000 --out dashboard/data/lifecycle_trace_batch.json
 	@echo "\n--- Step 3: HTML dashboard ---"
 	python3 dashboard/generate.py
-	@echo "\nOpen index.html in a browser."
-
-lifecycle: dashboard
-	@echo "Note: use 'make dashboard' (lifecycle is an alias)."
+	@echo "\nOpen index.html locally, or see the live site on GitHub Pages (README)."
 
 $(BENCHMARK_TARGET): CXXFLAGS += $(RELFLAGS)
 $(BENCHMARK_TARGET): $(PLATFORM_MEMORY_OBJ) $(BENCHMARK_OBJ) $(LIFECYCLE_TRACE_OBJ) $(ALLOCATOR_CLI_OBJ)
@@ -101,11 +97,10 @@ clean:
 		allocator_test allocator_test-address allocator_test-thread allocator_test-undefined \
 		unit_tests unit_tests-address unit_tests-thread unit_tests-undefined
 
-plot: allocator_test
+plot: $(BENCHMARK_TARGET)
 	@mkdir -p dashboard/data
-	@echo "--- Step 1: Running C++ benchmark to generate CSV files... ---"
-	./allocator_test plot
-	@cp results.csv dashboard/data/results.csv
+	@echo "--- Step 1: Running C++ benchmark to generate CSV... ---"
+	./$(BENCHMARK_TARGET) plot
 	@echo "\n--- Step 2: Running Python script to generate plots... ---"
 	python3 dashboard/plot_results.py
-	@echo "\n--- All steps completed. Plots are in dashboard/data/. ---"
+	@echo "\n--- All steps completed. Output is in dashboard/data/. ---"
