@@ -22,27 +22,13 @@ A fixed-size block allocator written in C++. It serves one constant block size u
 │   └── PlatformMemory.hpp       # OS page map/unmap interface
 ├── src/
 │   └── PlatformMemory.cpp       # mmap / VirtualAlloc implementation
-├── tests/
-│   ├── test_runner.hpp            # Lightweight test harness
-│   ├── test_helpers.hpp           # Shared helpers, barriers, stat checks
-│   ├── workload_common.hpp        # Shared random-mix workload helpers
-│   ├── fixed_block_allocator_test.cpp
-│   ├── platform_memory_test.cpp
-│   ├── integration_test.cpp
-│   ├── concurrency_test.cpp       # Multithreaded stress tests
-│   ├── test_main.cpp
-│   ├── benchmark_main.cpp
-│   ├── lifecycle_trace.cpp/hpp    # Lifecycle trace for dashboard
-│   └── allocator_cli_main.cpp     # CLI: benchmark, plot, trace
+├── tests/                       # Tests
 ├── dashboard/
 │   ├── load_data.py
 │   ├── generate.py              # unified index.html
-│   ├── plot_results.py          # legacy matplotlib PNG charts
-│   ├── requirements.txt         # optional Python deps for make plot
+│   ├── requirements.txt         # Python deps for make plot
 │   └── data/                    # generated CSV, traces, PNGs (gitignored)
 ├── .github/workflows/
-│   ├── ci.yml
-│   └── pages.yml                # deploy dashboard to GitHub Pages
 ├── Makefile
 └── README.md
 ```
