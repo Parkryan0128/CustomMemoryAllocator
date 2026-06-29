@@ -3,177 +3,183 @@
 [![CI](https://github.com/Parkryan0128/CustomMemoryAllocator/actions/workflows/ci.yml/badge.svg)](https://github.com/Parkryan0128/CustomMemoryAllocator/actions/workflows/ci.yml)
 [![Language](https://img.shields.io/badge/Language-C%2B%2B-blue.svg)]()
 
-A fixed-size block allocator written in C++. It serves one constant block size using an intrusive free list backed by OS memory pages, and includes a benchmark suite comparing it against `malloc`/`free`.
+A high-performance, fixed-size block allocator written in C++. It manages memory via an intrusive free list backed directly by OS pages, offering significant performance improvements over the standard system `malloc`/`free`. 
 
-Live site: https://parkryan0128.github.io/CustomMemoryAllocator/
+Live Dashboard & Benchmarks: [parkryan0128.github.io/CustomMemoryAllocator](https://parkryan0128.github.io/CustomMemoryAllocator/)
 
-## Key Features
+***
 
-* **Fixed block size:** All allocations are the same size, so there is no size-class routing or per-request bookkeeping.
-* **Lock-free common path:** Allocate/deallocate hit a thread-local cache with no lock; the central pool is locked only for batched refills, flushes, and page growth.
-* **Lazy bump carving:** Fresh capacity is handed to a thread as an untouched contiguous range, so block memory is only written when the caller uses it (no double-touch on growth).
-* **Empty-page release:** Returns fully unused 64 KB pages to the OS. Call `flush_local_thread_cache()` to reclaim a thread's cached blocks first.
-* **Cross-platform platform memory layer:** Uses `mmap` on POSIX systems and `VirtualAlloc` on Windows.
+## 📋 Table of Contents
 
-## Project Structure
+* [Key Features](#key-features)
+* [Project Structure](#project-structure)
+* [How to Build and Run](#how-to-build-and-run)
+* [Internal Architecture](#internal-architecture)
+* [Performance](#performance)
+* [Contact](#contact)
 
-```
+***
+<a id="key-features"></a>
+## ✨ Key Features
+
+* **Fixed-Block Architecture:** Allocations are uniformly sized, eliminating the need for per-request bookkeeping overhead.
+* **Lock-Free Fast Path:** Allocation and deallocation utilize a lockless thread-local cache. The central pool requires locking only for operations like batched refills, flushes, and page growth.
+* **Lazy Bump Allocation:** Fresh capacity is provided to threads as an untouched contiguous memory range. Physical memory is only committed when explicitly used, preventing redundant page faults.
+* **Aggressive Memory Reclamation:** Fully unused 64 KB pages are automatically unmapped and returned to the OS.
+* **Cross-Platform Abstraction:** Leverages native OS APIs (`mmap` on POSIX, `VirtualAlloc` on Windows) for direct virtual memory management.
+
+***
+<a id="project-structure"></a>
+## 📁 Project Structure
+
+```text
 ├── include/
-│   ├── FixedBlockAllocator.hpp  # Fixed-size allocator
+│   ├── FixedBlockAllocator.hpp  # Core allocator implementation
 │   └── PlatformMemory.hpp       # OS page map/unmap interface
 ├── src/
-│   └── PlatformMemory.cpp       # mmap / VirtualAlloc implementation
-├── tests/                       # Tests
+│   └── PlatformMemory.cpp       # OS-specific memory mappings
+├── tests/                       # Unit and integration test suites
 ├── dashboard/
 │   ├── load_data.py
-│   ├── generate.py              # unified index.html
-│   ├── requirements.txt         # Python deps for make plot
-│   └── data/                    # generated CSV, traces, PNGs
-├── .github/workflows/
+│   ├── generate.py              # Generates the unified index.html
+│   ├── requirements.txt         # Python dependencies for plotting
+│   └── data/                    # Output directory for CSVs and PNGs
+├── .github/workflows/           # CI/CD pipelines
 ├── Makefile
 └── README.md
 ```
 
-All production code lives in the `cma` namespace (`Custom Memory Allocator`).
+***
+<a id="how-to-build-and-run"></a>
+## ⚙️ How to Build and Run
 
-## How to Build and Run
+### Prerequisites
 
-### Requirements
-
-* C++17 compiler (GCC, Clang, or MSVC)
-* `make`
-* Python 3; install `dashboard/requirements.txt` for `make plot`
+* **Compiler:** C++17 compliant (GCC, Clang, or MSVC)
+* **Build System:** `make`
+* **Python 3:** (Optional) Required only for generating benchmark plots and the web dashboard (`pip install -r dashboard/requirements.txt`).
 
 ### Build
 
+To compile the project, run:
 ```bash
 make
 ```
 
-This builds both binaries:
+This generates two primary target binaries:
 
-| Binary | Purpose |
-|--------|---------|
-| `unit_tests` | Full test suite (95 tests) |
-| `allocator_test` | Benchmark / plot / trace CLI (`-O2` release build) |
+| Target Binary | Description |
+|---------------|-------------|
+| `unit_tests`  | Comprehensive test suite (debug build). |
+| `allocator_test` | CLI tool for benchmarks, plotting, and tracing (compiled with `-O2` optimizations). |
 
-### Run Unit Tests
+### Unit Testing & Memory Safety
 
+Execute the standard test suite (95 automated tests):
 ```bash
 make test
 ```
 
-Sanitizer builds (require Clang or GCC with sanitizer support):
-
+**Sanitizer Builds:**
+To compile and run tests with LLVM/GCC sanitizers enabled (requires a compatible compiler):
 ```bash
-make test-asan    # AddressSanitizer
-make test-tsan    # ThreadSanitizer
-make test-ubsan   # UndefinedBehaviorSanitizer
+make test-asan    # AddressSanitizer (Memory errors)
+make test-tsan    # ThreadSanitizer (Data races)
+make test-ubsan   # UndefinedBehaviorSanitizer (UB checks)
 ```
+*(Note: Alternatively, you can pass the flag directly: `make test SANITIZE=address`)*
 
-Or pass `SANITIZE=address|thread|undefined` directly: `make test SANITIZE=address`.
+### Continuous Integration (CI)
 
-### Continuous Integration
+Automated GitHub Actions workflows (`.github/workflows/ci.yml`) are triggered on all pushes and PRs to ensure main branch stability:
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request:
+| Job | OS Platform | Validation Scope |
+|-----|-------------|------------------|
+| **test** | Ubuntu, macOS | Standard test suite execution |
+| **asan** | Ubuntu, macOS | Memory leak and out-of-bounds detection |
+| **tsan** | Ubuntu | Concurrency and lock-free thread safety |
+| **ubsan** | Ubuntu | Undefined behavior compliance |
 
-| Job | Platform | What it checks |
-|-----|----------|----------------|
-| **test** | Ubuntu + macOS | Full 95-test suite (debug build) |
-| **asan** | Ubuntu + macOS | Tests under AddressSanitizer |
-| **tsan** | Ubuntu | Tests under ThreadSanitizer |
-| **ubsan** | Ubuntu | Tests under UndefinedBehaviorSanitizer |
+### Benchmarking & Visualization
 
-### Run Benchmarks
-
-Quick console comparison:
-
+**1. Console Benchmark:**
+Run a fast CLI comparison against the standard system allocator:
 ```bash
 make benchmark
-# or
-./allocator_test benchmark
+# Alternatively: ./allocator_test benchmark
 ```
 
-Generate legacy matplotlib plots (requires `pip install -r dashboard/requirements.txt`):
-
+**2. Legacy Matplotlib Plots:**
+Generate static PNG charts representing allocation latencies (requires Python dependencies):
 ```bash
 make plot
 ```
 
-### Interactive dashboard
-
-Benchmark charts and lifecycle traces in one page (`index.html`):
-
+**3. Interactive Web Dashboard:**
+Compile results and trace logs into a unified HTML dashboard for visual inspection:
 ```bash
 make dashboard
-# open index.html
+# This generates and automatically opens index.html
 ```
 
 ### Clean
 
+Remove all compiled binaries and build artifacts:
 ```bash
 make clean
 ```
 
-## How It Works
+***
+<a id="internal-architecture"></a>
+## 🏗️ Internal Architecture
 
-### Platform Memory Layer (`cma::map_page` / `cma::unmap_page`)
+### Platform Memory Layer
 
-The lowest layer requests large virtual memory regions from the operating system:
+The foundational layer requests large, contiguous virtual memory regions directly from the operating system:
+* **POSIX Systems:** Uses `mmap` / `munmap`
+* **Windows Systems:** Uses `VirtualAlloc` / `VirtualFree`
 
-* **POSIX:** `mmap` / `munmap`
-* **Windows:** `VirtualAlloc` / `VirtualFree`
-
-Failures return `nullptr` (map) or are ignored (unmap of invalid/null pointer).
+Memory mapping failures gracefully return `nullptr`, and unmapping invalid or null pointers is safely ignored.
 
 ### `cma::FixedBlockAllocator<BlockSize>`
 
-A template that manages one fixed block size:
+A template class governing a specific constant block size. The memory lifecycle follows these core phases:
 
-1. On construction (or when a thread cache runs dry), the central pool maps a 64 KB page from the OS. Each page is 64 KB-aligned so any block address masks back to its page header in O(1).
-2. Blocks are **carved lazily** with a bump pointer: a refill hands a thread an untouched `[bump_ptr, bump_end)` range, so no block memory is written until the caller uses it.
-3. Freed blocks are recycled through an intrusive free list (the `next` pointer lives inside each free block) — thread-local first, spilling to per-page central lists in batches.
+1. **Mapping & Alignment:** When a thread cache is depleted, the central pool allocates a 64 KB page from the OS. Pages are strictly 64 KB-aligned, allowing any given block pointer to resolve its parent page header in O(1) time via bitwise masking.
+2. **Lazy Bump Allocation:** Blocks are allocated via a bump pointer. A refill provides the thread with an uninitialized `[bump_ptr, bump_end)` memory range. This ensures physical memory pages are not dirtied until they are explicitly accessed by the application.
+3. **Intrusive Free List:** Freed blocks are managed via an intrusive free list (the `next` pointer is stored directly inside the unallocated block). Blocks are pushed to the thread-local cache first, and then spilled over to the central pool in batches to minimize lock contention.
 
-Allocation takes a recycled block from the thread cache, or carves from its bump range, falling back to a locked refill. Deallocation pushes to the thread cache and only touches the central pool when the cache exceeds a high-water mark. A page is returned to the OS once every carved block has come home; because freed blocks linger in thread caches, call `flush_local_thread_cache()` to force reclamation.
+**Deallocation Strategy:** Calling `deallocate()` pushes blocks back to the thread-local cache. If the cache exceeds a predefined high-water mark, it transfers a batch to the central pool. A page is fully unmapped and returned to the OS once all of its constituent blocks are freed. 
 
-#### Public query API
+***
+<a id="performance"></a>
+## 📊 Performance
 
-| Method | Description |
-|--------|-------------|
-| `stats()` | Consistent snapshot of all counters under one lock |
-| `active_page_count()` | Mapped pages |
-| `live_block_count()` | Blocks currently allocated to callers |
-| `free_block_count()` | Free blocks on central page lists |
-| `capacity_block_count()` | Total blocks across mapped pages |
-| `mapped_bytes()` / `live_bytes()` / `free_bytes()` | Byte equivalents |
-| `flush_local_thread_cache()` | Return this thread's cached blocks to the central pool |
+The benchmark suite (`./allocator_test benchmark`) evaluates this allocator against the standard system `malloc`/`free` using 32-byte blocks.
 
-`allocate()` returns `nullptr` on mapping failure. Call `flush_local_thread_cache()` on worker threads before they exit so cached blocks are not stranded.
+**Evaluation Scenarios:**
+* **Threading:** Single-threaded vs. Multi-threaded (utilizing independent, thread-local allocator instances).
+* **Workloads:**
+  * *Interleaved:* Allocate and immediately free.
+  * *Batch:* Allocate in bulk, hold, then free in bulk.
+  * *Random Mix:* Pseudo-random allocations and deallocations maintaining an active live set.
 
-## Performance
-
-`./allocator_test benchmark` compares the allocator against the system `malloc`/`free`
-for 32-byte blocks across two axes:
-
-* **Threading:** single-thread and multi-thread (one private allocator per thread in the
-  multi case — the idiomatic way to use a fixed-block pool).
-* **Workload:** *interleaved* (allocate then immediately free), *batch* (allocate many,
-  hold, then free them all), and *random_mix* (pseudo-random alloc/free with a live set).
-
-Each measurement defeats dead-code elimination (every block is written through an
-optimization barrier so `malloc` cannot be elided), warms up once, and reports the
-median of several runs. The console prints `ratio = custom / malloc` (values below 1 mean
-the custom allocator is faster). Representative results (Apple Silicon, 8 threads, 5M ops):
+**Representative Results**
 
 | Scenario | Custom (ms) | System malloc (ms) | Ratio (custom/malloc) |
 |----------|------------:|-------------------:|----------------------:|
-| single, interleaved | 29 | 99 | 0.29 |
-| single, batch | 93 | 106 | 0.88 |
-| multi, interleaved | 6 | 50 | 0.12 |
-| multi, batch | 31 | 27 | 1.15 |
+| Single, Interleaved | 29 | 99 | **0.29** |
+| Single, Batch | 93 | 106 | **0.88** |
+| Multi, Interleaved | 6 | 50 | **0.12** |
+| Multi, Batch | 31 | 27 | 1.15 |
 
-Run `make benchmark` for all six scenarios (including random_mix). The interactive
-dashboard (`make dashboard`) charts the full CSV.
+View full interactive results here: [parkryan0128.github.io/CustomMemoryAllocator](https://parkryan0128.github.io/CustomMemoryAllocator/)
 
-Run `make plot` to regenerate `dashboard/data/results.csv` and `benchmark_*.png` charts
-(install deps with `pip install -r dashboard/requirements.txt`).
+***
+<a id="contact"></a>
+## 📧 Contact
+
+- **Name:** Ryan Park
+- **Email:** [parkryan0128@gmail.com](mailto:parkryan0128@gmail.com)
+- **LinkedIn:** [https://www.linkedin.com/in/parkryan0128](https://www.linkedin.com/in/parkryan0128)
+- **GitHub:** [https://github.com/Parkryan0128](https://github.com/Parkryan0128)
