@@ -5,6 +5,8 @@
 
 A fixed-size block allocator written in C++. It serves one constant block size using an intrusive free list backed by OS memory pages, and includes a benchmark suite comparing it against `malloc`/`free`.
 
+Live site: https://parkryan0128.github.io/CustomMemoryAllocator/
+
 ## Key Features
 
 * **Fixed block size:** All allocations are the same size, so there is no size-class routing or per-request bookkeeping.
@@ -16,9 +18,8 @@ A fixed-size block allocator written in C++. It serves one constant block size u
 ## Project Structure
 
 ```
-.
 ├── include/
-│   ├── FixedBlockAllocator.hpp  # Fixed-size allocator (header-only template)
+│   ├── FixedBlockAllocator.hpp  # Fixed-size allocator
 │   └── PlatformMemory.hpp       # OS page map/unmap interface
 ├── src/
 │   └── PlatformMemory.cpp       # mmap / VirtualAlloc implementation
@@ -27,7 +28,7 @@ A fixed-size block allocator written in C++. It serves one constant block size u
 │   ├── load_data.py
 │   ├── generate.py              # unified index.html
 │   ├── requirements.txt         # Python deps for make plot
-│   └── data/                    # generated CSV, traces, PNGs (gitignored)
+│   └── data/                    # generated CSV, traces, PNGs
 ├── .github/workflows/
 ├── Makefile
 └── README.md
@@ -41,7 +42,7 @@ All production code lives in the `cma` namespace (`Custom Memory Allocator`).
 
 * C++17 compiler (GCC, Clang, or MSVC)
 * `make`
-* Python 3 (stdlib only for `make dashboard`; install `dashboard/requirements.txt` for `make plot`)
+* Python 3; install `dashboard/requirements.txt` for `make plot`
 
 ### Build
 
@@ -65,8 +66,8 @@ make test
 Sanitizer builds (require Clang or GCC with sanitizer support):
 
 ```bash
-make test-asan    # AddressSanitizer — memory errors, use-after-free
-make test-tsan    # ThreadSanitizer — data races
+make test-asan    # AddressSanitizer
+make test-tsan    # ThreadSanitizer
 make test-ubsan   # UndefinedBehaviorSanitizer
 ```
 
@@ -79,8 +80,8 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request:
 | Job | Platform | What it checks |
 |-----|----------|----------------|
 | **test** | Ubuntu + macOS | Full 95-test suite (debug build) |
-| **asan** | Ubuntu + macOS | Tests under AddressSanitizer (leak detection on Linux only) |
-| **tsan** | Ubuntu | Tests under ThreadSanitizer (scaled-down concurrency workload; may take several minutes) |
+| **asan** | Ubuntu + macOS | Tests under AddressSanitizer |
+| **tsan** | Ubuntu | Tests under ThreadSanitizer |
 | **ubsan** | Ubuntu | Tests under UndefinedBehaviorSanitizer |
 
 ### Run Benchmarks
@@ -106,27 +107,6 @@ Benchmark charts and lifecycle traces in one page (`index.html`):
 ```bash
 make dashboard
 # open index.html
-```
-
-**Live site:** https://parkryan0128.github.io/CustomMemoryAllocator/
-
-**One-time setup** (required — the workflow fails with `Get Pages site failed` until this is done):
-
-1. Open **Settings → Pages** on GitHub
-2. Under **Build and deployment**, set **Source** to **GitHub Actions**
-3. Re-run the **Deploy dashboard to GitHub Pages** workflow (Actions tab → workflow → **Run workflow**)
-
-Pushes to `main` then deploy automatically via `.github/workflows/pages.yml`.
-
-Source lives under `dashboard/` (`load_data.py`, `generate.py`); generated data goes in
-`dashboard/data/` (gitignored).
-
-Lifecycle traces can also be run manually:
-
-```bash
-./allocator_test trace --workload interleaved --ops 100000 --sample 2000 \
-  --out dashboard/data/lifecycle_trace_interleaved.json
-python3 dashboard/generate.py
 ```
 
 ### Clean
