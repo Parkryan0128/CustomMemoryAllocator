@@ -9,8 +9,7 @@ allocator_test-*
 unit_tests
 unit_tests-*
 
-# Dashboard (generated)
-index.html
+# Dashboard (generated intermediate data)
 dashboard/data/
 
 # Editor

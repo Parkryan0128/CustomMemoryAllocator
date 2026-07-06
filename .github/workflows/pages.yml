@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Build and deploy
+    name: Deploy dashboard
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -27,8 +27,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build dashboard
-        run: make dashboard
+      - name: Verify committed dashboard
+        run: test -s index.html
 
       - name: Prepare site
         run: |

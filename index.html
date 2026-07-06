@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fixed-Block Allocator Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --panel-border: #2a3544;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --win: #3fb950;
+      --lose: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      padding: 2rem 1.5rem 1rem;
+      border-bottom: 1px solid var(--panel-border);
+      background: linear-gradient(180deg, #161b22 0%, var(--bg) 100%);
+    }
+    header h1 { margin: 0 0 0.35rem; font-size: 1.5rem; font-weight: 600; }
+    header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+    main { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: center;
+      margin-bottom: 1.25rem;
+    }
+    label { color: var(--muted); font-size: 0.85rem; }
+    select {
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.95rem;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      padding: 1rem 1.1rem;
+    }
+    .card h3 {
+      margin: 0 0 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .metric { font-size: 1.75rem; font-weight: 700; }
+    .metric-sub { font-size: 0.85rem; color: var(--muted); margin-top: 0.25rem; }
+    .speedup-win { color: var(--win); }
+    .speedup-lose { color: var(--lose); }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+    .panel h2 { margin: 0 0 1rem; font-size: 1rem; font-weight: 600; }
+    .chart-wrap { position: relative; height: 340px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.55rem 0.65rem;
+      border-bottom: 1px solid var(--panel-border);
+    }
+    th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; }
+    td.num { font-variant-numeric: tabular-nums; }
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.8rem;
+      padding: 2rem 1rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Fixed-Block Allocator Dashboard</h1>
+    <p>32-byte blocks · custom pool vs system malloc</p>
+  </header>
+
+  <main>
+    <div class="controls">
+      <div>
+        <label for="bench-select">Scenario</label><br />
+        <select id="bench-select"></select>
+      </div>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <h3>Custom allocator</h3>
+        <div class="metric" id="card-custom">—</div>
+        <div class="metric-sub" id="card-custom-sub">at peak scale</div>
+      </div>
+      <div class="card">
+        <h3>System malloc</h3>
+        <div class="metric" id="card-system">—</div>
+        <div class="metric-sub" id="card-system-sub">at peak scale</div>
+      </div>
+      <div class="card">
+        <h3>Speedup</h3>
+        <div class="metric" id="card-speedup">—</div>
+        <div class="metric-sub" id="card-speedup-sub">custom / system (&lt;1 is faster)</div>
+      </div>
+      <div class="card">
+        <h3>Operations</h3>
+        <div class="metric" id="card-ops">—</div>
+        <div class="metric-sub">allocation count</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Time vs allocation count</h2>
+      <div class="chart-wrap">
+        <canvas id="line-chart"></canvas>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>All scenarios at peak scale</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Scenario</th>
+            <th>Custom (ms)</th>
+            <th>System (ms)</th>
+            <th>Ratio</th>
+            <th>Winner</th>
+          </tr>
+        </thead>
+        <tbody id="summary-body"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <footer>
+    Regenerate with: <code>make dashboard</code>
+  </footer>
+
+  <script>
+    const BENCHMARK_DATA = [{"allocator_type":"system","benchmark_type":"single_interleaved","num_allocations":10000,"time_ms":0},{"allocator_type":"custom","benchmark_type":"single_interleaved","num_allocations":10000,"time_ms":0},{"allocator_type":"system","benchmark_type":"single_batch","num_allocations":10000,"time_ms":0},{"allocator_type":"custom","benchmark_type":"single_batch","num_allocations":10000,"time_ms":0},{"allocator_type":"system","benchmark_type":"single_random_mix","num_allocations":10000,"time_ms":0},{"allocator_type":"custom","benchmark_type":"single_random_mix","num_allocations":10000,"time_ms":0},{"allocator_type":"system","benchmark_type":"multi_interleaved","num_allocations":10000,"time_ms":0},{"allocator_type":"custom","benchmark_type":"multi_interleaved","num_allocations":10000,"time_ms":0},{"allocator_type":"system","benchmark_type":"multi_batch","num_allocations":10000,"time_ms":0},{"allocator_type":"custom","benchmark_type":"multi_batch","num_allocations":10000,"time_ms":0},{"allocator_type":"system","benchmark_type":"multi_random_mix","num_allocations":10000,"time_ms":0},{"allocator_type":"custom","benchmark_type":"multi_random_mix","num_allocations":10000,"time_ms":0},{"allocator_type":"system","benchmark_type":"single_interleaved","num_allocations":50000,"time_ms":1},{"allocator_type":"custom","benchmark_type":"single_interleaved","num_allocations":50000,"time_ms":0},{"allocator_type":"system","benchmark_type":"single_batch","num_allocations":50000,"time_ms":1},{"allocator_type":"custom","benchmark_type":"single_batch","num_allocations":50000,"time_ms":1},{"allocator_type":"system","benchmark_type":"single_random_mix","num_allocations":50000,"time_ms":1},{"allocator_type":"custom","benchmark_type":"single_random_mix","num_allocations":50000,"time_ms":0},{"allocator_type":"system","benchmark_type":"multi_interleaved","num_allocations":50000,"time_ms":0},{"allocator_type":"custom","benchmark_type":"multi_interleaved","num_allocations":50000,"time_ms":0},{"allocator_type":"system","benchmark_type":"multi_batch","num_allocations":50000,"time_ms":0},{"allocator_type":"custom","benchmark_type":"multi_batch","num_allocations":50000,"time_ms":0},{"allocator_type":"system","benchmark_type":"multi_random_mix","num_allocations":50000,"time_ms":0},{"allocator_type":"custom","benchmark_type":"multi_random_mix","num_allocations":50000,"time_ms":0},{"allocator_type":"system","benchmark_type":"single_interleaved","num_allocations":100000,"time_ms":3},{"allocator_type":"custom","benchmark_type":"single_interleaved","num_allocations":100000,"time_ms":1},{"allocator_type":"system","benchmark_type":"single_batch","num_allocations":100000,"time_ms":3},{"allocator_type":"custom","benchmark_type":"single_batch","num_allocations":100000,"time_ms":2},{"allocator_type":"system","benchmark_type":"single_random_mix","num_allocations":100000,"time_ms":2},{"allocator_type":"custom","benchmark_type":"single_random_mix","num_allocations":100000,"time_ms":0},{"allocator_type":"system","benchmark_type":"multi_interleaved","num_allocations":100000,"time_ms":2},{"allocator_type":"custom","benchmark_type":"multi_interleaved","num_allocations":100000,"time_ms":0},{"allocator_type":"system","benchmark_type":"multi_batch","num_allocations":100000,"time_ms":1},{"allocator_type":"custom","benchmark_type":"multi_batch","num_allocations":100000,"time_ms":1},{"allocator_type":"system","benchmark_type":"multi_random_mix","num_allocations":100000,"time_ms":0},{"allocator_type":"custom","benchmark_type":"multi_random_mix","num_allocations":100000,"time_ms":0},{"allocator_type":"system","benchmark_type":"single_interleaved","num_allocations":250000,"time_ms":9},{"allocator_type":"custom","benchmark_type":"single_interleaved","num_allocations":250000,"time_ms":2},{"allocator_type":"system","benchmark_type":"single_batch","num_allocations":250000,"time_ms":9},{"allocator_type":"custom","benchmark_type":"single_batch","num_allocations":250000,"time_ms":7},{"allocator_type":"system","benchmark_type":"single_random_mix","num_allocations":250000,"time_ms":5},{"allocator_type":"custom","benchmark_type":"single_random_mix","num_allocations":250000,"time_ms":1},{"allocator_type":"system","benchmark_type":"multi_interleaved","num_allocations":250000,"time_ms":5},{"allocator_type":"custom","benchmark_type":"multi_interleaved","num_allocations":250000,"time_ms":0},{"allocator_type":"system","benchmark_type":"multi_batch","num_allocations":250000,"time_ms":2},{"allocator_type":"custom","benchmark_type":"multi_batch","num_allocations":250000,"time_ms":2},{"allocator_type":"system","benchmark_type":"multi_random_mix","num_allocations":250000,"time_ms":0},{"allocator_type":"custom","benchmark_type":"multi_random_mix","num_allocations":250000,"time_ms":0},{"allocator_type":"system","benchmark_type":"single_interleaved","num_allocations":500000,"time_ms":18},{"allocator_type":"custom","benchmark_type":"single_interleaved","num_allocations":500000,"time_ms":5},{"allocator_type":"system","benchmark_type":"single_batch","num_allocations":500000,"time_ms":18},{"allocator_type":"custom","benchmark_type":"single_batch","num_allocations":500000,"time_ms":14},{"allocator_type":"system","benchmark_type":"single_random_mix","num_allocations":500000,"time_ms":10},{"allocator_type":"custom","benchmark_type":"single_random_mix","num_allocations":500000,"time_ms":3},{"allocator_type":"system","benchmark_type":"multi_interleaved","num_allocations":500000,"time_ms":6},{"allocator_type":"custom","benchmark_type":"multi_interleaved","num_allocations":500000,"time_ms":1},{"allocator_type":"system","benchmark_type":"multi_batch","num_allocations":500000,"time_ms":5},{"allocator_type":"custom","benchmark_type":"multi_batch","num_allocations":500000,"time_ms":5},{"allocator_type":"system","benchmark_type":"multi_random_mix","num_allocations":500000,"time_ms":1},{"allocator_type":"custom","benchmark_type":"multi_random_mix","num_allocations":500000,"time_ms":1},{"allocator_type":"system","benchmark_type":"single_interleaved","num_allocations":1000000,"time_ms":37},{"allocator_type":"custom","benchmark_type":"single_interleaved","num_allocations":1000000,"time_ms":10},{"allocator_type":"system","benchmark_type":"single_batch","num_allocations":1000000,"time_ms":38},{"allocator_type":"custom","benchmark_type":"single_batch","num_allocations":1000000,"time_ms":31},{"allocator_type":"system","benchmark_type":"single_random_mix","num_allocations":1000000,"time_ms":21},{"allocator_type":"custom","benchmark_type":"single_random_mix","num_allocations":1000000,"time_ms":7},{"allocator_type":"system","benchmark_type":"multi_interleaved","num_allocations":1000000,"time_ms":15},{"allocator_type":"custom","benchmark_type":"multi_interleaved","num_allocations":1000000,"time_ms":3},{"allocator_type":"system","benchmark_type":"multi_batch","num_allocations":1000000,"time_ms":11},{"allocator_type":"custom","benchmark_type":"multi_batch","num_allocations":1000000,"time_ms":10},{"allocator_type":"system","benchmark_type":"multi_random_mix","num_allocations":1000000,"time_ms":6},{"allocator_type":"custom","benchmark_type":"multi_random_mix","num_allocations":1000000,"time_ms":3},{"allocator_type":"system","benchmark_type":"single_interleaved","num_allocations":2000000,"time_ms":76},{"allocator_type":"custom","benchmark_type":"single_interleaved","num_allocations":2000000,"time_ms":20},{"allocator_type":"system","benchmark_type":"single_batch","num_allocations":2000000,"time_ms":77},{"allocator_type":"custom","benchmark_type":"single_batch","num_allocations":2000000,"time_ms":59},{"allocator_type":"system","benchmark_type":"single_random_mix","num_allocations":2000000,"time_ms":43},{"allocator_type":"custom","benchmark_type":"single_random_mix","num_allocations":2000000,"time_ms":14},{"allocator_type":"system","benchmark_type":"multi_interleaved","num_allocations":2000000,"time_ms":27},{"allocator_type":"custom","benchmark_type":"multi_interleaved","num_allocations":2000000,"time_ms":6},{"allocator_type":"system","benchmark_type":"multi_batch","num_allocations":2000000,"time_ms":16},{"allocator_type":"custom","benchmark_type":"multi_batch","num_allocations":2000000,"time_ms":26},{"allocator_type":"system","benchmark_type":"multi_random_mix","num_allocations":2000000,"time_ms":7},{"allocator_type":"custom","benchmark_type":"multi_random_mix","num_allocations":2000000,"time_ms":4}];
+    const BENCHMARK_LABELS = {"single_interleaved": "Single-thread \u00b7 Interleaved", "single_batch": "Single-thread \u00b7 Batch", "single_random_mix": "Single-thread \u00b7 Random mix", "multi_interleaved": "Multi-thread \u00b7 Interleaved", "multi_batch": "Multi-thread \u00b7 Batch", "multi_random_mix": "Multi-thread \u00b7 Random mix"};
+    const BENCHMARK_ORDER = ["single_interleaved", "single_batch", "single_random_mix", "multi_interleaved", "multi_batch", "multi_random_mix"];
+
+    function formatOps(n) {
+      if (n >= 1_000_000) return (n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1) + "M";
+      if (n >= 1_000) return (n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1) + "K";
+      return String(n);
+    }
+
+    function groupByBenchmark(rows) {
+      const map = {};
+      for (const row of rows) {
+        if (!map[row.benchmark_type]) map[row.benchmark_type] = { custom: [], system: [] };
+        map[row.benchmark_type][row.allocator_type].push(row);
+      }
+      for (const key of Object.keys(map)) {
+        map[key].custom.sort((a, b) => a.num_allocations - b.num_allocations);
+        map[key].system.sort((a, b) => a.num_allocations - b.num_allocations);
+      }
+      return map;
+    }
+
+    function ratio(custom, system) {
+      if (system <= 0) return custom <= 0 ? 1 : Infinity;
+      return custom / system;
+    }
+
+    const grouped = groupByBenchmark(BENCHMARK_DATA);
+    const benchKeys = BENCHMARK_ORDER.filter((key) => key in grouped);
+    const benchSelect = document.getElementById("bench-select");
+    benchKeys.forEach((key) => {
+      const opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = BENCHMARK_LABELS[key] || key.replace(/_/g, " ");
+      benchSelect.appendChild(opt);
+    });
+
+    let lineChart = null;
+
+    function currentSeries() {
+      return grouped[benchSelect.value];
+    }
+
+    function peakIndex(series) {
+      return series.custom.length - 1;
+    }
+
+    function updateCards() {
+      const series = currentSeries();
+      const index = peakIndex(series);
+      const custom = series.custom[index];
+      const system = series.system[index];
+      const r = ratio(custom.time_ms, system.time_ms);
+
+      document.getElementById("card-custom").textContent = custom.time_ms + " ms";
+      document.getElementById("card-system").textContent = system.time_ms + " ms";
+      document.getElementById("card-ops").textContent = formatOps(custom.num_allocations);
+
+      const speedupEl = document.getElementById("card-speedup");
+      if (!Number.isFinite(r)) {
+        speedupEl.textContent = "—";
+        speedupEl.className = "metric";
+      } else {
+        speedupEl.textContent = r.toFixed(2) + "×";
+        speedupEl.className = "metric " + (r < 1 ? "speedup-win" : "speedup-lose");
+      }
+
+      const winner = r < 1 ? "Custom wins" : r > 1 ? "System wins" : "Tie";
+      document.getElementById("card-speedup-sub").textContent = winner + " · ratio custom/system";
+      document.getElementById("card-custom-sub").textContent = formatOps(custom.num_allocations) + " operations";
+      document.getElementById("card-system-sub").textContent = formatOps(system.num_allocations) + " operations";
+    }
+
+    function buildLineChart() {
+      const ctx = document.getElementById("line-chart");
+      const series = currentSeries();
+      const labels = series.custom.map((r) => formatOps(r.num_allocations));
+
+      if (lineChart) lineChart.destroy();
+      lineChart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            {
+              label: "Custom",
+              data: series.custom.map((r) => r.time_ms),
+              borderColor: "#3fb950",
+              backgroundColor: "rgba(63, 185, 80, 0.12)",
+              tension: 0.2,
+              pointRadius: 4,
+            },
+            {
+              label: "System malloc",
+              data: series.system.map((r) => r.time_ms),
+              borderColor: "#f0883e",
+              backgroundColor: "rgba(240, 136, 62, 0.12)",
+              tension: 0.2,
+              pointRadius: 4,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: "#e6edf3" } },
+          },
+          scales: {
+            x: {
+              title: { display: true, text: "Allocations", color: "#8b949e" },
+              ticks: { color: "#8b949e" },
+              grid: { color: "#2a3544" },
+            },
+            y: {
+              title: { display: true, text: "Time (ms)", color: "#8b949e" },
+              ticks: { color: "#8b949e" },
+              grid: { color: "#2a3544" },
+              beginAtZero: true,
+            },
+          },
+        },
+      });
+    }
+
+    function buildSummaryTable() {
+      const tbody = document.getElementById("summary-body");
+      tbody.innerHTML = "";
+      const maxOps = Math.max(...BENCHMARK_DATA.map((r) => r.num_allocations));
+
+      benchKeys.forEach((key) => {
+        const custom = grouped[key].custom.find((r) => r.num_allocations === maxOps);
+        const system = grouped[key].system.find((r) => r.num_allocations === maxOps);
+        if (!custom || !system) return;
+        const r = ratio(custom.time_ms, system.time_ms);
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${BENCHMARK_LABELS[key] || key}</td>
+          <td class="num">${custom.time_ms}</td>
+          <td class="num">${system.time_ms}</td>
+          <td class="num">${Number.isFinite(r) ? r.toFixed(2) + "×" : "—"}</td>
+          <td>${r < 1 ? '<span class="speedup-win">Custom</span>' : r > 1 ? '<span class="speedup-lose">System</span>' : "Tie"}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    benchSelect.addEventListener("change", () => {
+      buildLineChart();
+      updateCards();
+    });
+
+    buildSummaryTable();
+    buildLineChart();
+    updateCards();
+  </script>
+</body>
+</html>

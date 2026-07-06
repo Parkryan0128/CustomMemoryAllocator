@@ -42,8 +42,9 @@ Live Dashboard & Benchmarks: [parkryan0128.github.io/CustomMemoryAllocator](http
 ├── dashboard/
 │   ├── load_data.py
 │   ├── generate.py              # Generates the unified index.html
-│   └── data/                    # Output directory for benchmark CSV
+│   └── data/                    # Benchmark CSV (gitignored; baked into index.html)
 ├── .github/workflows/           # CI/CD pipelines
+├── index.html                   # Dashboard (regenerate locally, commit for Pages)
 ├── Makefile
 └── README.md
 ```
@@ -109,10 +110,10 @@ make benchmark
 ```
 
 **2. Interactive Web Dashboard:**
-Compile benchmark results into an interactive HTML dashboard:
+Regenerate locally and commit `index.html` for GitHub Pages:
 ```bash
 make dashboard
-# Generates index.html at the repo root
+# Commit index.html when benchmark numbers change
 ```
 
 ### Clean

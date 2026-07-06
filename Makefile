@@ -89,4 +89,4 @@ clean:
 	rm -rf obj obj-address obj-thread obj-undefined \
 		allocator_test allocator_test-address allocator_test-thread allocator_test-undefined \
 		unit_tests unit_tests-address unit_tests-thread unit_tests-undefined \
-		index.html dashboard/data
+		dashboard/data
