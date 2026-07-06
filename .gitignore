@@ -9,9 +9,6 @@ allocator_test-*
 unit_tests
 unit_tests-*
 
-# Benchmark outputs (legacy root path)
-results.csv
-
 # Dashboard (generated)
 index.html
 dashboard/data/

@@ -59,15 +59,6 @@ void expect_stats_consistent(const AllocatorType& allocator) {
     }
 }
 
-inline void flush_thread_cache(cma::FixedBlockAllocator<kBlockSize>& allocator) {
-    allocator.flush_local_thread_cache();
-}
-
-template <size_t BlockSize>
-void flush_thread_cache(cma::FixedBlockAllocator<BlockSize>& allocator) {
-    allocator.flush_local_thread_cache();
-}
-
 class PhaseBarrier {
 public:
     explicit PhaseBarrier(unsigned int participant_count)

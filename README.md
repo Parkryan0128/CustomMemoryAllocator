@@ -42,8 +42,7 @@ Live Dashboard & Benchmarks: [parkryan0128.github.io/CustomMemoryAllocator](http
 ├── dashboard/
 │   ├── load_data.py
 │   ├── generate.py              # Generates the unified index.html
-│   ├── requirements.txt         # Python dependencies for plotting
-│   └── data/                    # Output directory for CSVs and PNGs
+│   └── data/                    # Output directory for benchmark CSV
 ├── .github/workflows/           # CI/CD pipelines
 ├── Makefile
 └── README.md
@@ -57,7 +56,7 @@ Live Dashboard & Benchmarks: [parkryan0128.github.io/CustomMemoryAllocator](http
 
 * **Compiler:** C++17 compliant (GCC, Clang, or MSVC)
 * **Build System:** `make`
-* **Python 3:** (Optional) Required only for generating benchmark plots and the web dashboard (`pip install -r dashboard/requirements.txt`).
+* **Python 3:** (Optional) Required only for `make dashboard` (stdlib only).
 
 ### Build
 
@@ -71,7 +70,7 @@ This generates two primary target binaries:
 | Target Binary | Description |
 |---------------|-------------|
 | `unit_tests`  | Comprehensive test suite (debug build). |
-| `allocator_test` | CLI tool for benchmarks, plotting, and tracing (compiled with `-O2` optimizations). |
+| `allocator_test` | CLI tool for benchmarks and CSV generation (compiled with `-O2` optimizations). |
 
 ### Unit Testing & Memory Safety
 
@@ -109,17 +108,11 @@ make benchmark
 # Alternatively: ./allocator_test benchmark
 ```
 
-**2. Legacy Matplotlib Plots:**
-Generate static PNG charts representing allocation latencies (requires Python dependencies):
-```bash
-make plot
-```
-
-**3. Interactive Web Dashboard:**
+**2. Interactive Web Dashboard:**
 Compile benchmark results into an interactive HTML dashboard:
 ```bash
 make dashboard
-# This generates and automatically opens index.html
+# Generates index.html at the repo root
 ```
 
 ### Clean

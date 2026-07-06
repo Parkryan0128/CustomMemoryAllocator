@@ -65,11 +65,6 @@ long long measure_ms(Fn fn) {
     return std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 }
 
-unsigned int default_thread_count() {
-    const unsigned int hw = std::thread::hardware_concurrency();
-    return hw > 0 ? hw : 4U;
-}
-
 constexpr Workload kAllWorkloads[] = {
     Workload::Interleaved,
     Workload::Batch,
@@ -84,31 +79,19 @@ unsigned long long run_random_mix(size_t operations,
                                   unsigned int seed,
                                   Alloc alloc,
                                   Free free_fn) {
-    std::vector<void*> live;
-    live.reserve(64);
     unsigned long long checksum = 0;
-
-    for (size_t op = 0; op < operations; ++op) {
-        const size_t salt = workload::random_mix_salt(op, seed);
-        if (workload::random_mix_should_alloc(live.size(), salt)) {
+    workload::run_random_mix(
+        operations, seed,
+        [&](size_t op) {
             void* block = alloc();
             do_not_optimize(block);
             touch_block(block, op);
-            live.push_back(block);
-        } else {
-            const size_t index = salt % live.size();
-            void* block = live[index];
+            return block;
+        },
+        [&](void* block) {
             checksum += read_block(block);
-            live[index] = live.back();
-            live.pop_back();
             free_fn(block);
-        }
-    }
-
-    for (void* block : live) {
-        checksum += read_block(block);
-        free_fn(block);
-    }
+        });
     return checksum;
 }
 
@@ -274,7 +257,7 @@ void print_result_row(const std::string& label, long long custom_ms, long long m
 
 void run_console_benchmark() {
     const size_t single_iterations = 5'000'000;
-    const unsigned int thread_count = default_thread_count();
+    const unsigned int thread_count = workload::default_thread_count();
     const size_t multi_iterations = single_iterations;
 
     std::cout << "\n" << std::string(72, '=') << "\n";
@@ -311,7 +294,7 @@ void generate_plot_data() {
     const std::vector<size_t> allocation_counts = {
         10000, 50000, 100000, 250000, 500000, 1000000, 2000000,
     };
-    const unsigned int thread_count = default_thread_count();
+    const unsigned int thread_count = workload::default_thread_count();
     const int num_runs_per_test = 3;
 
     std::cout << "--- Generating " << kPlotCsvPath << " ---\n";
@@ -359,7 +342,7 @@ void print_usage(const char* prog_name) {
 
 } // namespace
 
-int run_benchmark_cli(int argc, char* argv[]) {
+int main(int argc, char* argv[]) {
     if (argc != 2) {
         print_usage(argv[0]);
         return 1;
@@ -379,9 +362,3 @@ int run_benchmark_cli(int argc, char* argv[]) {
 
     return 0;
 }
-
-#ifndef CMA_NO_MAIN
-int main(int argc, char* argv[]) {
-    return run_benchmark_cli(argc, argv);
-}
-#endif

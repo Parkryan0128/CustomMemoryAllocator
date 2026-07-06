@@ -1,4 +1,0 @@
-# Optional — only needed for legacy matplotlib plots (`make plot`).
-pandas>=2.0
-seaborn>=0.13
-matplotlib>=3.8

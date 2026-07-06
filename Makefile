@@ -41,7 +41,7 @@ UNIT_TEST_OBJS = $(OBJ_DIR)/test_main.o \
 BENCHMARK_TARGET = allocator_test$(SAN_SUFFIX)
 UNIT_TEST_TARGET = unit_tests$(SAN_SUFFIX)
 
-.PHONY: all test test-asan test-tsan test-ubsan benchmark dashboard clean plot
+.PHONY: all test test-asan test-tsan test-ubsan benchmark dashboard clean
 
 all: $(BENCHMARK_TARGET) $(UNIT_TEST_TARGET)
 
@@ -89,11 +89,3 @@ clean:
 	rm -rf obj obj-address obj-thread obj-undefined \
 		allocator_test allocator_test-address allocator_test-thread allocator_test-undefined \
 		unit_tests unit_tests-address unit_tests-thread unit_tests-undefined
-
-plot: $(BENCHMARK_TARGET)
-	@mkdir -p dashboard/data
-	@echo "--- Step 1: Running C++ benchmark to generate CSV... ---"
-	./$(BENCHMARK_TARGET) plot
-	@echo "\n--- Step 2: Running Python script to generate plots... ---"
-	python3 dashboard/plot_results.py
-	@echo "\n--- All steps completed. Output is in dashboard/data/. ---"

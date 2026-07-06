@@ -20,18 +20,7 @@ using cma_test::PhaseBarrier;
 using cma_test::allocate_blocks;
 using cma_test::deallocate_blocks;
 using cma_test::expect_stats_consistent;
-using cma_test::flush_thread_cache;
 using cma_test::kBlockSize;
-
-unsigned int default_thread_count() {
-    const unsigned int hw = std::thread::hardware_concurrency();
-    const unsigned int count = hw > 0 ? hw : 4U;
-#ifdef CMA_TSAN_BUILD
-    return count > 2 ? 2U : count;
-#else
-    return count;
-#endif
-}
 
 #ifdef CMA_TSAN_BUILD
 constexpr size_t tsan_scale(size_t value) {
@@ -76,7 +65,7 @@ void worker_alloc_free(Allocator* allocator, size_t iterations) {
         verify_block_stamp(block, 0, i);
         allocator->deallocate(block);
     }
-    flush_thread_cache(*allocator);
+    allocator->flush_local_thread_cache();
 }
 
 void worker_alloc_free_stamped(Allocator* allocator, unsigned int thread_id, size_t iterations) {
@@ -87,7 +76,7 @@ void worker_alloc_free_stamped(Allocator* allocator, unsigned int thread_id, siz
         verify_block_stamp(block, thread_id, i);
         allocator->deallocate(block);
     }
-    flush_thread_cache(*allocator);
+    allocator->flush_local_thread_cache();
 }
 
 template <size_t BlockSize>
@@ -102,14 +91,14 @@ void run_parallel_alloc_free_smoke(size_t iterations, unsigned int thread_count 
                 EXPECT_NOT_NULL(block);
                 allocator.deallocate(block);
             }
-            flush_thread_cache(allocator);
+            allocator.flush_local_thread_cache();
         });
     }
     for (std::thread& thread : threads) {
         thread.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
@@ -117,7 +106,7 @@ void run_parallel_alloc_free_smoke(size_t iterations, unsigned int thread_count 
 
 TEST(Concurrency_HighVolumeParallelWorkload) {
     Allocator allocator;
-    const unsigned int thread_count = default_thread_count();
+    const unsigned int thread_count = workload::default_thread_count();
     const size_t iterations_per_thread = 1000;
 
     std::vector<std::thread> threads;
@@ -128,7 +117,7 @@ TEST(Concurrency_HighVolumeParallelWorkload) {
         thread.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
     cma_test::expect_stats_consistent(allocator);
 }
@@ -140,19 +129,19 @@ TEST(Concurrency_EachThreadCanDrainToZeroPages) {
     std::thread first([&]() {
         auto blocks = allocate_blocks(allocator, blocks_per_page);
         deallocate_blocks(allocator, blocks);
-        flush_thread_cache(allocator);
+        allocator.flush_local_thread_cache();
     });
 
     std::thread second([&]() {
         auto blocks = allocate_blocks(allocator, blocks_per_page);
         deallocate_blocks(allocator, blocks);
-        flush_thread_cache(allocator);
+        allocator.flush_local_thread_cache();
     });
 
     first.join();
     second.join();
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
@@ -170,11 +159,11 @@ TEST(Concurrency_CrossThreadDeallocate) {
     std::thread deallocator_thread([&]() {
         verify_block_stamp(block, 1, 42);
         allocator.deallocate(block);
-        flush_thread_cache(allocator);
+        allocator.flush_local_thread_cache();
     });
     deallocator_thread.join();
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
@@ -228,7 +217,7 @@ TEST(Concurrency_CrossThreadManyHandoffs) {
                 allocator.deallocate(block);
                 consumed_total.fetch_add(1);
             }
-            flush_thread_cache(allocator);
+            allocator.flush_local_thread_cache();
         });
     }
 
@@ -242,7 +231,7 @@ TEST(Concurrency_CrossThreadManyHandoffs) {
         thread.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(consumed_total.load(), thread_count * handoffs_per_pair);
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
@@ -282,13 +271,13 @@ TEST(Concurrency_ProducerConsumerContinuous) {
             allocator.deallocate(block);
             consumed.fetch_add(1);
         }
-        flush_thread_cache(allocator);
+        allocator.flush_local_thread_cache();
     });
 
     producer.join();
     consumer.join();
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(produced.load(), total_blocks);
     EXPECT_EQ(consumed.load(), total_blocks);
     EXPECT_EQ(allocator.live_block_count(), 0U);
@@ -313,7 +302,7 @@ TEST(Concurrency_BarrierSimultaneousAllocThenFree) {
             }
             barrier.arrive_and_wait();
             deallocate_blocks(allocator, blocks);
-            flush_thread_cache(allocator);
+            allocator.flush_local_thread_cache();
         });
     }
 
@@ -321,7 +310,7 @@ TEST(Concurrency_BarrierSimultaneousAllocThenFree) {
         thread.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
     cma_test::expect_stats_consistent(allocator);
 }
@@ -342,7 +331,7 @@ TEST(Concurrency_ParallelGrowthBeyondOnePage) {
             alloc_barrier.arrive_and_wait();
             free_barrier.arrive_and_wait();
             deallocate_blocks(allocator, held[i]);
-            flush_thread_cache(allocator);
+            allocator.flush_local_thread_cache();
         });
     }
 
@@ -355,14 +344,14 @@ TEST(Concurrency_ParallelGrowthBeyondOnePage) {
         thread.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
 TEST(Concurrency_ParallelGrowthMultiPage) {
     Allocator allocator;
     const size_t blocks_per_page = Allocator::blocks_per_page();
-    const unsigned int thread_count = default_thread_count();
+    const unsigned int thread_count = workload::default_thread_count();
     const size_t target_pages = 3;
     const size_t blocks_per_thread = (blocks_per_page * target_pages) / thread_count + 1;
     PhaseBarrier alloc_barrier(thread_count + 1);
@@ -376,7 +365,7 @@ TEST(Concurrency_ParallelGrowthMultiPage) {
             alloc_barrier.arrive_and_wait();
             free_barrier.arrive_and_wait();
             deallocate_blocks(allocator, held[i]);
-            flush_thread_cache(allocator);
+            allocator.flush_local_thread_cache();
         });
     }
 
@@ -388,7 +377,7 @@ TEST(Concurrency_ParallelGrowthMultiPage) {
         thread.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
@@ -403,7 +392,7 @@ TEST(Concurrency_ConcurrentEmptyPageRelease) {
             for (int cycle = 0; cycle < 3; ++cycle) {
                 auto blocks = allocate_blocks(allocator, blocks_per_page);
                 deallocate_blocks(allocator, blocks);
-                flush_thread_cache(allocator);
+                allocator.flush_local_thread_cache();
             }
         });
     }
@@ -411,7 +400,7 @@ TEST(Concurrency_ConcurrentEmptyPageRelease) {
         thread.join();
     }
 
-    cma_test::flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
     cma_test::expect_stats_consistent(allocator);
 }
@@ -447,11 +436,11 @@ TEST(Concurrency_ConcurrentEmptyPageReleaseCrossThread) {
             }
             allocator.deallocate(block);
         }
-        flush_thread_cache(allocator);
+        allocator.flush_local_thread_cache();
     });
 
     consumer.join();
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
@@ -468,13 +457,13 @@ TEST(Concurrency_MemoryPatternsUniquePerThread) {
         thread.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
 TEST(Concurrency_StatsConsistentAfterParallelWorkload) {
     Allocator allocator;
-    const unsigned int thread_count = default_thread_count();
+    const unsigned int thread_count = workload::default_thread_count();
 
     std::vector<std::thread> threads;
     for (unsigned int i = 0; i < thread_count; ++i) {
@@ -484,7 +473,7 @@ TEST(Concurrency_StatsConsistentAfterParallelWorkload) {
         thread.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     cma_test::expect_stats_consistent(allocator);
 }
 
@@ -502,7 +491,7 @@ TEST(Concurrency_StatsQueriesDuringWorkload) {
                 EXPECT_NOT_NULL(block);
                 allocator.deallocate(block);
             }
-            flush_thread_cache(allocator);
+            allocator.flush_local_thread_cache();
         });
     }
 
@@ -524,7 +513,7 @@ TEST(Concurrency_StatsQueriesDuringWorkload) {
     stop.store(true);
     stats_thread.join();
 
-    cma_test::flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     cma_test::expect_stats_consistent(allocator);
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
@@ -549,12 +538,12 @@ TEST(Concurrency_PartialLiveBlocksAcrossThreads) {
     for (unsigned int i = 0; i < thread_count; ++i) {
         std::thread releaser([&, i]() {
             deallocate_blocks(allocator, held[i]);
-            flush_thread_cache(allocator);
+            allocator.flush_local_thread_cache();
         });
         releaser.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
@@ -574,14 +563,14 @@ TEST(Concurrency_HighWaterMarkFlushStress) {
                 allocator.deallocate(a);
                 allocator.deallocate(b);
             }
-            flush_thread_cache(allocator);
+            allocator.flush_local_thread_cache();
         });
     }
     for (std::thread& thread : threads) {
         thread.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
     cma_test::expect_stats_consistent(allocator);
 }
@@ -604,7 +593,7 @@ TEST(Concurrency_RefillBatchBoundary) {
                     allocator.deallocate(blocks[j]);
                 }
                 allocator.deallocate(blocks[refill]);
-                flush_thread_cache(allocator);
+                allocator.flush_local_thread_cache();
             }
         });
     }
@@ -612,13 +601,13 @@ TEST(Concurrency_RefillBatchBoundary) {
         thread.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
 TEST(Concurrency_ManyThreadsMoreThanCores) {
     Allocator allocator;
-    const unsigned int thread_count = std::max(16U, default_thread_count() * 2);
+    const unsigned int thread_count = std::max(16U, workload::default_thread_count() * 2);
     const size_t iterations = 400;
 
     std::vector<std::thread> threads;
@@ -629,7 +618,7 @@ TEST(Concurrency_ManyThreadsMoreThanCores) {
         thread.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
@@ -643,7 +632,7 @@ TEST(Concurrency_ShortLivedThreadBurst) {
         worker.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
     cma_test::expect_stats_consistent(allocator);
 }
@@ -668,8 +657,8 @@ TEST(Concurrency_TwoAllocatorsIndependentUnderThreads) {
         thread.join();
     }
 
-    flush_thread_cache(first);
-    flush_thread_cache(second);
+    first.flush_local_thread_cache();
+    second.flush_local_thread_cache();
     EXPECT_EQ(first.live_block_count(), 0U);
     EXPECT_EQ(second.live_block_count(), 0U);
     cma_test::expect_stats_consistent(first);
@@ -700,7 +689,7 @@ TEST(Concurrency_RepeatedWavePattern) {
                 wave_blocks[i] = allocate_blocks(allocator, wave_size);
                 wave_barrier.arrive_and_wait();
                 deallocate_blocks(allocator, wave_blocks[i]);
-                flush_thread_cache(allocator);
+                allocator.flush_local_thread_cache();
             });
         }
         for (std::thread& thread : threads) {
@@ -708,7 +697,7 @@ TEST(Concurrency_RepeatedWavePattern) {
         }
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
@@ -720,31 +709,22 @@ TEST(Concurrency_RandomMixAllocFree) {
     std::vector<std::thread> threads;
     for (unsigned int i = 0; i < thread_count; ++i) {
         threads.emplace_back([&, i]() {
-            std::vector<void*> live;
-            live.reserve(64);
-            for (size_t op = 0; op < operations; ++op) {
-                const size_t salt = workload::random_mix_salt(op, i);
-                if (workload::random_mix_should_alloc(live.size(), salt)) {
+            workload::run_random_mix(
+                operations, i,
+                [&](size_t) {
                     void* block = allocator.allocate();
                     EXPECT_NOT_NULL(block);
-                    live.push_back(block);
-                } else {
-                    const size_t index = salt % live.size();
-                    void* block = live[index];
-                    live[index] = live.back();
-                    live.pop_back();
-                    allocator.deallocate(block);
-                }
-            }
-            deallocate_blocks(allocator, live);
-            flush_thread_cache(allocator);
+                    return block;
+                },
+                [&](void* block) { allocator.deallocate(block); });
+            allocator.flush_local_thread_cache();
         });
     }
     for (std::thread& thread : threads) {
         thread.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
@@ -794,13 +774,13 @@ TEST(Concurrency_SingleBlockPingPong) {
             verify_block_stamp(block, 1, i);
             allocator.deallocate(block);
         }
-        flush_thread_cache(allocator);
+        allocator.flush_local_thread_cache();
     });
 
     producer.join();
     consumer.join();
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
@@ -813,20 +793,20 @@ TEST(Concurrency_OddEvenSplitFreeResponsibility) {
         for (size_t i = 1; i < blocks.size(); i += 2) {
             allocator.deallocate(blocks[i]);
         }
-        flush_thread_cache(allocator);
+        allocator.flush_local_thread_cache();
     });
 
     std::thread evens([&]() {
         for (size_t i = 0; i < blocks.size(); i += 2) {
             allocator.deallocate(blocks[i]);
         }
-        flush_thread_cache(allocator);
+        allocator.flush_local_thread_cache();
     });
 
     odds.join();
     evens.join();
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
@@ -843,7 +823,7 @@ TEST(Concurrency_StaggeredThreadCompletion) {
         thread.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
@@ -866,7 +846,7 @@ TEST(Concurrency_MappedBytesAfterParallelGrowth) {
     EXPECT_GE(allocator.mapped_bytes(), 2 * Allocator::PAGE_SIZE);
     EXPECT_GE(allocator.active_page_count(), 2U);
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), thread_count * blocks_per_page);
 }
 
@@ -880,7 +860,7 @@ TEST(Concurrency_FullDrainReachesZeroPages) {
     for (unsigned int i = 0; i < thread_count; ++i) {
         threads.emplace_back([&, i]() {
             all_blocks[i] = allocate_blocks(allocator, blocks_per_page);
-            flush_thread_cache(allocator);
+            allocator.flush_local_thread_cache();
         });
     }
     for (std::thread& thread : threads) {
@@ -892,12 +872,12 @@ TEST(Concurrency_FullDrainReachesZeroPages) {
     for (unsigned int i = 0; i < thread_count; ++i) {
         std::thread releaser([&, i]() {
             deallocate_blocks(allocator, all_blocks[i]);
-            flush_thread_cache(allocator);
+            allocator.flush_local_thread_cache();
         });
         releaser.join();
     }
 
-    cma_test::flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
     EXPECT_EQ(allocator.active_page_count(), 0U);
 }
@@ -928,14 +908,14 @@ TEST(Concurrency_InterleavedAllocFreeNoLeak) {
                    !max_local_live_seen.compare_exchange_weak(expected, max_local_live)) {
             }
             deallocate_blocks(allocator, live);
-            flush_thread_cache(allocator);
+            allocator.flush_local_thread_cache();
         });
     }
     for (std::thread& thread : threads) {
         thread.join();
     }
 
-    cma_test::flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
     EXPECT_LE(max_local_live_seen.load(), 16U);
 }
@@ -953,7 +933,7 @@ TEST(Concurrency_DestructorSafeAfterMultithreadedUse) {
         for (std::thread& thread : threads) {
             thread.join();
         }
-        flush_thread_cache(allocator);
+        allocator.flush_local_thread_cache();
     }
 }
 
@@ -964,7 +944,7 @@ TEST(Concurrency_WorkerFlushReturnsUnusedRefillBlocks) {
     std::vector<void*> blocks;
     std::thread worker([&]() {
         blocks = allocate_blocks(allocator, blocks_per_page);
-        flush_thread_cache(allocator);
+        allocator.flush_local_thread_cache();
     });
     worker.join();
 
@@ -972,7 +952,7 @@ TEST(Concurrency_WorkerFlushReturnsUnusedRefillBlocks) {
     EXPECT_GE(allocator.active_page_count(), 1U);
 
     deallocate_blocks(allocator, blocks);
-    cma_test::flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
     EXPECT_EQ(allocator.active_page_count(), 0U);
 }
@@ -990,14 +970,14 @@ TEST(Concurrency_MainThreadFlushAfterWorkerCaches) {
                 EXPECT_NOT_NULL(block);
                 allocator.deallocate(block);
             }
-            flush_thread_cache(allocator);
+            allocator.flush_local_thread_cache();
         });
     }
     for (std::thread& thread : threads) {
         thread.join();
     }
 
-    cma_test::flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     cma_test::expect_stats_consistent(allocator);
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
@@ -1013,13 +993,13 @@ TEST(Concurrency_AlternatingGrowthAndReleaseCycles) {
             threads.emplace_back([&]() {
                 auto blocks = allocate_blocks(allocator, blocks_per_page / 4 + 1);
                 deallocate_blocks(allocator, blocks);
-                flush_thread_cache(allocator);
+                allocator.flush_local_thread_cache();
             });
         }
         for (std::thread& thread : threads) {
             thread.join();
         }
-        cma_test::flush_thread_cache(allocator);
+        allocator.flush_local_thread_cache();
         EXPECT_EQ(allocator.live_block_count(), 0U);
     }
 }
@@ -1051,7 +1031,7 @@ TEST(Concurrency_BlocksRemainDistinctUnderContention) {
     }
 
     deallocate_blocks(allocator, all_blocks);
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
@@ -1097,7 +1077,7 @@ TEST(Concurrency_InvalidPointerDeallocateFromMultipleThreads) {
         thread.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     cma_test::expect_stats_consistent(allocator);
 }
 
@@ -1125,11 +1105,11 @@ TEST(Concurrency_ConcurrentAllocateOnlyThenBulkFree) {
 
     std::thread bulk_freer([&]() {
         deallocate_blocks(allocator, all_blocks);
-        flush_thread_cache(allocator);
+        allocator.flush_local_thread_cache();
     });
     bulk_freer.join();
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
@@ -1147,14 +1127,14 @@ TEST(Concurrency_ConcurrentBulkFreeByMultipleThreads) {
     for (unsigned int i = 0; i < thread_count; ++i) {
         threads.emplace_back([&, i]() {
             deallocate_blocks(allocator, per_thread_blocks[i]);
-            flush_thread_cache(allocator);
+            allocator.flush_local_thread_cache();
         });
     }
     for (std::thread& thread : threads) {
         thread.join();
     }
 
-    cma_test::flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
@@ -1169,14 +1149,14 @@ TEST(Concurrency_SharedAllocatorScopedWorkers) {
             threads.emplace_back([&]() {
                 auto blocks = allocate_blocks(allocator, blocks_per_page / 3);
                 deallocate_blocks(allocator, blocks);
-                flush_thread_cache(allocator);
+                allocator.flush_local_thread_cache();
             });
         }
         for (std::thread& thread : threads) {
             thread.join();
         }
 
-        flush_thread_cache(allocator);
+        allocator.flush_local_thread_cache();
         EXPECT_EQ(allocator.live_block_count(), 0U);
     }
 }
@@ -1195,7 +1175,7 @@ TEST(Concurrency_LiveBytesTrackConcurrentAllocations) {
             alloc_barrier.arrive_and_wait();
             free_barrier.arrive_and_wait();
             deallocate_blocks(allocator, blocks);
-            flush_thread_cache(allocator);
+            allocator.flush_local_thread_cache();
         });
     }
 
@@ -1208,7 +1188,7 @@ TEST(Concurrency_LiveBytesTrackConcurrentAllocations) {
         thread.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }
 
@@ -1226,7 +1206,7 @@ TEST(Concurrency_CapacityInvariantUnderParallelAlloc) {
             alloc_barrier.arrive_and_wait();
             free_barrier.arrive_and_wait();
             deallocate_blocks(allocator, blocks);
-            flush_thread_cache(allocator);
+            allocator.flush_local_thread_cache();
         });
     }
 
@@ -1238,6 +1218,6 @@ TEST(Concurrency_CapacityInvariantUnderParallelAlloc) {
         thread.join();
     }
 
-    flush_thread_cache(allocator);
+    allocator.flush_local_thread_cache();
     EXPECT_EQ(allocator.live_block_count(), 0U);
 }

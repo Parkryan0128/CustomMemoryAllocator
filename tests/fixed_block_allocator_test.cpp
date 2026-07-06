@@ -13,14 +13,6 @@ using cma_test::deallocate_blocks;
 using cma_test::expect_stats_consistent;
 using cma_test::kBlockSize;
 
-namespace {
-
-void expect_consistent(const Allocator& allocator) {
-    expect_stats_consistent(allocator);
-}
-
-} // namespace
-
 // ---------------------------------------------------------------------------
 // Smoke tests
 // ---------------------------------------------------------------------------
@@ -30,7 +22,7 @@ TEST(Construct_AllocatorIsUsable) {
     void* block = allocator.allocate();
     EXPECT_NOT_NULL(block);
     allocator.deallocate(block);
-    expect_consistent(allocator);
+    expect_stats_consistent(allocator);
 }
 
 TEST(AllocateMany_ReturnsMostlyDistinctPointers) {
@@ -94,7 +86,7 @@ TEST(Smoke_AllocateBatchThenFreeBatch) {
             EXPECT_NOT_NULL(block);
         }
         deallocate_blocks(allocator, blocks);
-        expect_consistent(allocator);
+        expect_stats_consistent(allocator);
     }
 }
 
@@ -129,7 +121,7 @@ TEST(Growth_AllocatingOneExtraBlockCreatesSecondPage) {
     auto blocks = allocate_blocks(allocator, blocks_per_page + 1);
     EXPECT_EQ(allocator.live_block_count(), blocks_per_page + 1);
     EXPECT_GE(allocator.active_page_count(), 2U);
-    expect_consistent(allocator);
+    expect_stats_consistent(allocator);
 
     deallocate_blocks(allocator, blocks);
     allocator.flush_local_thread_cache();
@@ -157,7 +149,7 @@ TEST(Growth_ThirdPageCreatedWhenNeeded) {
 
     auto blocks = allocate_blocks(allocator, blocks_per_page * 2 + 1);
     EXPECT_GE(allocator.active_page_count(), 3U);
-    expect_consistent(allocator);
+    expect_stats_consistent(allocator);
 
     deallocate_blocks(allocator, blocks);
     allocator.flush_local_thread_cache();
@@ -293,7 +285,7 @@ TEST(Stats_InitialMappedPageHasNoLiveBlocks) {
     EXPECT_EQ(allocator.mapped_bytes(), Allocator::PAGE_SIZE);
     EXPECT_EQ(allocator.live_bytes(), 0U);
     EXPECT_EQ(allocator.free_block_count(), allocator.capacity_block_count());
-    expect_consistent(allocator);
+    expect_stats_consistent(allocator);
 }
 
 TEST(Stats_LiveBytesTrackAllocations) {
@@ -348,7 +340,7 @@ TEST(Stats_FreeBlockCountReflectsPartialRelease) {
 
     allocator.deallocate(blocks[0]);
     EXPECT_EQ(allocator.live_block_count(), blocks_per_page - 1);
-    expect_consistent(allocator);
+    expect_stats_consistent(allocator);
 
     for (size_t i = 1; i < blocks.size(); ++i) {
         allocator.deallocate(blocks[i]);
@@ -359,10 +351,10 @@ TEST(Stats_CapacityEqualsLivePlusFree) {
     Allocator allocator;
     const size_t blocks_per_page = Allocator::blocks_per_page();
     auto blocks = allocate_blocks(allocator, blocks_per_page / 2);
-    expect_consistent(allocator);
+    expect_stats_consistent(allocator);
 
     deallocate_blocks(allocator, blocks);
-    expect_consistent(allocator);
+    expect_stats_consistent(allocator);
 }
 
 TEST(Stats_AllCountersZeroWhenNoPagesMapped) {
@@ -485,7 +477,7 @@ TEST(EdgeCase_NearlyEmptyPageStaysMappedWithOneLiveBlock) {
 
     EXPECT_GE(allocator.active_page_count(), 1U);
     EXPECT_EQ(allocator.live_block_count(), 1U);
-    expect_consistent(allocator);
+    expect_stats_consistent(allocator);
 
     allocator.deallocate(blocks[0]);
     allocator.flush_local_thread_cache();
@@ -504,7 +496,7 @@ TEST(EdgeCase_DeallocateInvalidAddressInPageHeaderIsNoOp) {
 
     allocator.deallocate(header_address);
     EXPECT_EQ(allocator.live_block_count(), 1U);
-    expect_consistent(allocator);
+    expect_stats_consistent(allocator);
 
     allocator.deallocate(block);
 }
