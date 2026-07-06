@@ -116,7 +116,7 @@ make plot
 ```
 
 **3. Interactive Web Dashboard:**
-Compile results and trace logs into a unified HTML dashboard for visual inspection:
+Compile benchmark results into an interactive HTML dashboard:
 ```bash
 make dashboard
 # This generates and automatically opens index.html

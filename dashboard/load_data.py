@@ -1,9 +1,8 @@
-"""Load benchmark CSV and lifecycle trace JSON for the unified dashboard."""
+"""Load benchmark CSV for the dashboard."""
 
 from __future__ import annotations
 
 import csv
-import json
 import sys
 from pathlib import Path
 
@@ -29,32 +28,12 @@ BENCHMARK_LABELS = {
     "multi_random_mix": "Multi-thread · Random mix",
 }
 
-LIFECYCLE_ORDER = ["interleaved", "batch"]
-
-LIFECYCLE_LABELS = {
-    "interleaved": "Interleaved",
-    "batch": "Batch",
-}
-
-
-def _csv_candidates() -> list[Path]:
-    return [DATA_DIR / "results.csv"]
-
-
-def _trace_path(workload: str) -> list[Path]:
-    return [DATA_DIR / f"lifecycle_trace_{workload}.json"]
-
 
 def load_benchmark_rows() -> list[dict]:
-    csv_path: Path | None = None
-    for candidate in _csv_candidates():
-        if candidate.exists():
-            csv_path = candidate
-            break
-
-    if csv_path is None:
+    csv_path = DATA_DIR / "results.csv"
+    if not csv_path.exists():
         print(
-            f"Error: {DATA_DIR / 'results.csv'} not found. Run make dashboard or ./allocator_test plot.",
+            f"Error: {csv_path} not found. Run make dashboard or ./allocator_test plot.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -76,28 +55,3 @@ def load_benchmark_rows() -> list[dict]:
         sys.exit(1)
 
     return rows
-
-
-def _load_trace_file(path: Path) -> dict:
-    with path.open(encoding="utf-8") as file:
-        data = json.load(file)
-    if "meta" not in data or "samples" not in data or not data["samples"]:
-        raise ValueError(f"{path} is missing meta, samples, or has empty samples")
-    return data
-
-
-def load_lifecycle_traces() -> dict[str, dict]:
-    traces: dict[str, dict] = {}
-
-    for workload in LIFECYCLE_ORDER:
-        for path in _trace_path(workload):
-            if not path.exists():
-                continue
-            try:
-                data = _load_trace_file(path)
-            except ValueError:
-                continue
-            traces[workload] = data
-            break
-
-    return traces

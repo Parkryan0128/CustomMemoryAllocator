@@ -354,8 +354,7 @@ void print_usage(const char* prog_name) {
     std::cerr << "Usage: " << prog_name << " [command]\n\n"
               << "Commands:\n"
               << "  benchmark   Compare custom vs malloc (single and multi-thread).\n"
-              << "  plot        Generate dashboard/data/results.csv for plotting.\n"
-              << "  trace       Sample allocator stats to JSON (see: trace --help via missing args).\n";
+              << "  plot        Generate dashboard/data/results.csv for plotting.\n";
 }
 
 } // namespace
