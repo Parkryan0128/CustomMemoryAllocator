@@ -63,7 +63,7 @@ benchmark: $(BENCHMARK_TARGET)
 dashboard: $(BENCHMARK_TARGET)
 	@mkdir -p dashboard/data
 	@echo "--- Step 1: Benchmark CSV ---"
-	./$(BENCHMARK_TARGET) plot
+	./$(BENCHMARK_TARGET) csv
 	@echo "\n--- Step 2: HTML dashboard ---"
 	python3 dashboard/generate.py
 	@echo "\nOpen index.html locally, or see the live site on GitHub Pages (README)."
@@ -88,4 +88,5 @@ $(OBJ_DIR)/%.o: $(TEST_DIR)/%.cpp
 clean:
 	rm -rf obj obj-address obj-thread obj-undefined \
 		allocator_test allocator_test-address allocator_test-thread allocator_test-undefined \
-		unit_tests unit_tests-address unit_tests-thread unit_tests-undefined
+		unit_tests unit_tests-address unit_tests-thread unit_tests-undefined \
+		index.html dashboard/data

@@ -33,7 +33,7 @@ def load_benchmark_rows() -> list[dict]:
     csv_path = DATA_DIR / "results.csv"
     if not csv_path.exists():
         print(
-            f"Error: {csv_path} not found. Run make dashboard or ./allocator_test plot.",
+            f"Error: {csv_path} not found. Run make dashboard or ./allocator_test csv.",
             file=sys.stderr,
         )
         sys.exit(1)

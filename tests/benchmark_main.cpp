@@ -16,7 +16,7 @@
 namespace {
 
 constexpr size_t kBlockSize = 32;
-constexpr const char* kPlotCsvPath = "dashboard/data/results.csv";
+constexpr const char* kCsvPath = "dashboard/data/results.csv";
 
 // Sink used to defeat dead-code elimination: without consuming the allocated
 // memory the optimizer is free to delete an alloc/free pair entirely (which
@@ -290,17 +290,17 @@ void run_console_benchmark() {
     std::cout << std::string(72, '=') << "\n";
 }
 
-void generate_plot_data() {
+void generate_csv_data() {
     const std::vector<size_t> allocation_counts = {
         10000, 50000, 100000, 250000, 500000, 1000000, 2000000,
     };
     const unsigned int thread_count = workload::default_thread_count();
     const int num_runs_per_test = 3;
 
-    std::cout << "--- Generating " << kPlotCsvPath << " ---\n";
+    std::cout << "--- Generating " << kCsvPath << " ---\n";
 
     std::filesystem::create_directories("dashboard/data");
-    std::ofstream file(kPlotCsvPath);
+    std::ofstream file(kCsvPath);
     file << "allocator_type,benchmark_type,num_allocations,time_ms\n";
 
     for (const size_t count : allocation_counts) {
@@ -337,7 +337,7 @@ void print_usage(const char* prog_name) {
     std::cerr << "Usage: " << prog_name << " [command]\n\n"
               << "Commands:\n"
               << "  benchmark   Compare custom vs malloc (single and multi-thread).\n"
-              << "  plot        Generate dashboard/data/results.csv for plotting.\n";
+              << "  csv         Generate dashboard/data/results.csv for the dashboard.\n";
 }
 
 } // namespace
@@ -352,8 +352,8 @@ int main(int argc, char* argv[]) {
 
     if (command == "benchmark") {
         run_console_benchmark();
-    } else if (command == "plot") {
-        generate_plot_data();
+    } else if (command == "csv") {
+        generate_csv_data();
     } else {
         std::cerr << "Error: Unknown command '" << command << "'\n\n";
         print_usage(argv[0]);
