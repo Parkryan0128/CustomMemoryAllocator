@@ -1,7 +1,5 @@
 # C++ Custom Memory Allocator
 
-[![CI](https://github.com/Parkryan0128/CustomMemoryAllocator/actions/workflows/ci.yml/badge.svg)](https://github.com/Parkryan0128/CustomMemoryAllocator/actions/workflows/ci.yml)
-[![Language](https://img.shields.io/badge/Language-C%2B%2B-blue.svg)]()
 
 A high-performance, fixed-size block allocator written in C++. It manages memory via an intrusive free list backed directly by OS pages, offering significant performance improvements over the standard system `malloc`/`free`. 
 
