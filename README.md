@@ -7,26 +7,6 @@ Live Dashboard & Benchmarks: [parkryan0128.github.io/CustomMemoryAllocator](http
 
 ***
 
-## Table of Contents
-
-* [Key Features](#key-features)
-* [Project Structure](#project-structure)
-* [How to Build and Run](#how-to-build-and-run)
-* [Internal Architecture](#internal-architecture)
-* [Performance](#performance)
-* [Contact](#contact)
-
-***
-<a id="key-features"></a>
-## Key Features
-
-* **Fixed-Block Architecture:** Allocations are uniformly sized, eliminating the need for per-request bookkeeping overhead.
-* **Lock-Free Fast Path:** Allocation and deallocation utilize a lockless thread-local cache. The central pool requires locking only for operations like batched refills, flushes, and page growth.
-* **Lazy Bump Allocation:** Fresh capacity is provided to threads as an untouched contiguous memory range. Physical memory is only committed when explicitly used, preventing redundant page faults.
-* **Aggressive Memory Reclamation:** Fully unused 64 KB pages are automatically unmapped and returned to the OS.
-* **Cross-Platform Abstraction:** Leverages native OS APIs (`mmap` on POSIX, `VirtualAlloc` on Windows) for direct virtual memory management.
-
-***
 <a id="project-structure"></a>
 ## Project Structure
 
@@ -71,32 +51,12 @@ This generates two primary target binaries:
 | `unit_tests`  | Comprehensive test suite (debug build). |
 | `allocator_test` | CLI tool for benchmarks and CSV generation (compiled with `-O2` optimizations). |
 
-### Unit Testing & Memory Safety
+### Unit Test
 
 Execute the standard test suite (95 automated tests):
 ```bash
 make test
 ```
-
-**Sanitizer Builds:**
-To compile and run tests with LLVM/GCC sanitizers enabled (requires a compatible compiler):
-```bash
-make test-asan    # AddressSanitizer (Memory errors)
-make test-tsan    # ThreadSanitizer (Data races)
-make test-ubsan   # UndefinedBehaviorSanitizer (UB checks)
-```
-*(Note: Alternatively, you can pass the flag directly: `make test SANITIZE=address`)*
-
-### Continuous Integration (CI)
-
-Automated GitHub Actions workflows (`.github/workflows/ci.yml`) are triggered on all pushes and PRs to ensure main branch stability:
-
-| Job | OS Platform | Validation Scope |
-|-----|-------------|------------------|
-| **test** | Ubuntu, macOS | Standard test suite execution |
-| **asan** | Ubuntu, macOS | Memory leak and out-of-bounds detection |
-| **tsan** | Ubuntu | Concurrency and lock-free thread safety |
-| **ubsan** | Ubuntu | Undefined behavior compliance |
 
 ### Benchmarking & Visualization
 
