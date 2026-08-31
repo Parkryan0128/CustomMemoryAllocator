@@ -9,7 +9,7 @@ Live Dashboard & Benchmarks: [parkryan0128.github.io/CustomMemoryAllocator](http
 
 ***
 
-## 📋 Table of Contents
+## Table of Contents
 
 * [Key Features](#key-features)
 * [Project Structure](#project-structure)
@@ -20,7 +20,7 @@ Live Dashboard & Benchmarks: [parkryan0128.github.io/CustomMemoryAllocator](http
 
 ***
 <a id="key-features"></a>
-## ✨ Key Features
+## Key Features
 
 * **Fixed-Block Architecture:** Allocations are uniformly sized, eliminating the need for per-request bookkeeping overhead.
 * **Lock-Free Fast Path:** Allocation and deallocation utilize a lockless thread-local cache. The central pool requires locking only for operations like batched refills, flushes, and page growth.
@@ -30,7 +30,7 @@ Live Dashboard & Benchmarks: [parkryan0128.github.io/CustomMemoryAllocator](http
 
 ***
 <a id="project-structure"></a>
-## 📁 Project Structure
+## Project Structure
 
 ```text
 ├── include/
@@ -51,7 +51,7 @@ Live Dashboard & Benchmarks: [parkryan0128.github.io/CustomMemoryAllocator](http
 
 ***
 <a id="how-to-build-and-run"></a>
-## ⚙️ How to Build and Run
+## How to Build and Run
 
 ### Prerequisites
 
@@ -125,7 +125,7 @@ make clean
 
 ***
 <a id="internal-architecture"></a>
-## 🏗️ Internal Architecture
+## Internal Architecture
 
 ### Platform Memory Layer
 
@@ -147,7 +147,7 @@ A template class governing a specific constant block size. The memory lifecycle 
 
 ***
 <a id="performance"></a>
-## 📊 Performance
+## Performance
 
 The benchmark suite (`./allocator_test benchmark`) evaluates this allocator against the standard system `malloc`/`free` using 32-byte blocks.
 
@@ -171,7 +171,7 @@ View full interactive results here: [parkryan0128.github.io/CustomMemoryAllocato
 
 ***
 <a id="contact"></a>
-## 📧 Contact
+## Contact
 
 - **Name:** Ryan Park
 - **Email:** [parkryan0128@gmail.com](mailto:parkryan0128@gmail.com)
