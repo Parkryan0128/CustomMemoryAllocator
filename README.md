@@ -1,8 +1,6 @@
 # C++ Custom Memory Allocator
 
-A fixed-size memory allocator written in C++17.
-
-It obtains memory directly from the operating system, divides it into equal-sized blocks, and uses thread-local caches to reduce locking.
+A C++17 allocator for fixed-size blocks. It gets memory from the operating system and uses thread-local caches to reduce locking.
 
 [Benchmarks and dashboard](https://parkryan0128.github.io/CustomMemoryAllocator/)
 
@@ -29,21 +27,16 @@ Thread-local intrusive free list
     │ cache becomes too large
     ▼
 Central pool
-    │ page becomes fully unused
+    │ all carved blocks returned
     ▼
-Return memory to the OS
+Page can be released to the OS
 ```
 
-The allocator:
+Memory is organized into aligned 64 KiB pages, backed by `mmap` on POSIX or `VirtualAlloc` on Windows. Freed blocks store their own free-list pointers.
 
-1. Maps memory with `mmap` on POSIX or `VirtualAlloc` on Windows.
-2. Organizes memory into aligned 64 KiB pages.
-3. Carves new blocks using a bump pointer.
-4. Stores the free-list pointer inside each freed block.
-5. Gives each thread a local cache.
-6. Transfers blocks between thread caches and the central pool in batches.
-7. Uses a mutex only when accessing the central pool.
-8. Returns a page to the OS after all its carved blocks return to the central pool.
+Thread caches exchange blocks with the central pool in batches. A page stays mapped while any carved block is still allocated or held in a thread cache.
+
+## Usage
 
 Each allocator instance handles one block size:
 
@@ -71,29 +64,16 @@ tests/      Unit, integration, concurrency, and benchmark tests
 dashboard/  Benchmark dashboard generator
 ```
 
-## Build
+## Build and test
 
-Requirements:
-
-- C++17 compiler
-- GNU Make
-- Python 3 for dashboard generation
-
-Build the project:
+Requires a C++17 compiler and GNU Make. Dashboard generation also needs Python 3.
 
 ```bash
 make
-```
-
-## Tests
-
-Run all tests:
-
-```bash
 make test
 ```
 
-Run tests with sanitizers:
+To run the tests with sanitizers:
 
 ```bash
 make test-asan
@@ -117,7 +97,4 @@ make dashboard
 
 ## Contact
 
-- **Name:** Ryan Park
-- **Email:** [parkryan0128@gmail.com](mailto:parkryan0128@gmail.com)
-- **LinkedIn:** [linkedin.com/in/parkryan0128](https://www.linkedin.com/in/parkryan0128)
-- **GitHub:** [github.com/Parkryan0128](https://github.com/Parkryan0128)
+Ryan Park · [Email](mailto:parkryan0128@gmail.com) · [LinkedIn](https://www.linkedin.com/in/parkryan0128) · [GitHub](https://github.com/Parkryan0128)
